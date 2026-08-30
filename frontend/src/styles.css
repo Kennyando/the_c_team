@@ -1,0 +1,593 @@
+/* Elderly-first styling (proposal Section 6).
+   One control scales everything: --tile-scale is set by the size slider and every tile, button and
+   label is sized from it. */
+
+:root {
+  --tile-scale: 1.2;
+  --tile-w: calc(52px * var(--tile-scale));
+  --tile-h: calc(74px * var(--tile-scale));
+  --font: calc(17px * var(--tile-scale));
+  --tap: 56px; /* minimum tap target, comfortably above the 48px guideline */
+
+  --felt: #10603f;
+  --felt-dark: #0a4a30;
+  --ink: #17211c;
+  --panel: #fdfaf2;
+  --panel-edge: #c9bfa6;
+  --tile-face: #fffdf7;
+  --tile-edge: #a89877;
+  --accent: #b3271e;
+  --accent-text: #ffffff;
+  --highlight: #ffd23f;
+  --muted: #5c6b62;
+  --text-on-felt: #f4f7f2;
+
+  /* Traditional tile artwork. Pip shape and count carry the meaning; these colours are decoration,
+     so the faces stay readable for colour-blind players. */
+  --pip-ink: #17211c;
+  --pip-blue: #14549e;
+  --pip-red: #b3271e;
+  --pip-green: #12713f;
+}
+
+/* High-contrast theme: pure black ground, white tiles, yellow focus. */
+[data-theme='contrast'] {
+  --felt: #000000;
+  --felt-dark: #000000;
+  --ink: #000000;
+  --panel: #ffffff;
+  --panel-edge: #000000;
+  --tile-face: #ffffff;
+  --tile-edge: #000000;
+  --accent: #000000;
+  --accent-text: #ffff00;
+  --highlight: #ffff00;
+  --muted: #000000;
+  --text-on-felt: #ffffff;
+
+  /* One place flattens every tile face to black on white. */
+  --pip-ink: #000000;
+  --pip-blue: #000000;
+  --pip-red: #000000;
+  --pip-green: #000000;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: var(--font);
+  color: var(--ink);
+  background: var(--felt-dark);
+}
+
+button {
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: var(--tap);
+  padding: 0 calc(18px * var(--tile-scale));
+  border-radius: 12px;
+  border: 3px solid var(--panel-edge);
+  background: var(--panel);
+  color: var(--ink);
+}
+button:focus-visible { outline: 4px solid var(--highlight); outline-offset: 3px; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+[data-theme='contrast'] button.primary { border-color: var(--highlight); }
+
+/* ---------- layout ---------- */
+
+/* A definite height, so the table shrinks to fit rather than pushing the hand off the bottom. */
+.app { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 4px solid var(--panel-edge);
+}
+.topbar h1 { font-size: calc(22px * var(--tile-scale)); margin: 0; }
+.topbar .spacer { flex: 1; }
+.wall-count { color: var(--muted); font-weight: 700; }
+
+/* ---------- the table, seen from your seat ----------
+
+   One layout, two transforms: --tilt is the only difference between the seated and flat views, so
+   there is never a second layout to keep in sync. Nothing inside the scene is clickable, which is
+   what makes tilting it safe — your hand lives outside, flat and full size. */
+
+.table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  --tilt: 45deg;
+  --table-scale: 1.04;
+  --rim: #6b4a2a;
+  --rim-light: #9a6f42;
+}
+.table.view-flat { --tilt: 0deg; --table-scale: 1; }
+
+.scene {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 16px 0;
+  perspective: 1150px;
+  perspective-origin: 50% 26%;
+  background: radial-gradient(ellipse at 50% 120%, #14684a 0%, var(--felt-dark) 62%, #06301f 100%);
+  overflow: hidden;
+}
+.table.view-flat .scene { perspective: none; }
+
+.surface {
+  position: relative;
+  height: 100%;
+  width: min(92%, 1040px);
+  /* Scaled up a little: foreshortening shrinks the drawn table, and pulling it back out brings the
+     near edge close enough to feel like it meets your side of the table. */
+  transform: rotateX(var(--tilt)) scale(var(--table-scale));
+  transform-style: preserve-3d;
+  border-radius: 22px;
+
+  /* The size slider exists so you can read YOUR OWN hand. Applying it at full strength to the
+     table as well makes the opponents' racks and the discard pool outgrow the table itself, so
+     everything on the felt follows a damped version of it — it still grows, just gently. */
+  --table-tiles: calc(1.04 + (var(--tile-scale) - 1) * 0.3);
+  --tile-w: calc(52px * var(--table-tiles));
+  --tile-h: calc(74px * var(--table-tiles));
+
+  /* The wooden rim, lit a little at the near edge. */
+  border: 16px solid var(--rim);
+  border-top-color: color-mix(in srgb, var(--rim) 78%, black);
+  border-bottom-color: var(--rim-light);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.55), inset 0 0 0 3px rgba(0, 0, 0, 0.3);
+}
+[data-theme='contrast'] .surface {
+  --rim: #000;
+  --rim-light: #fff;
+  border-color: #fff;
+  box-shadow: none;
+}
+
+.felt {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 42%, #167a52, var(--felt) 58%, #0b4a32 100%);
+  transform: translateZ(-6px);
+}
+[data-theme='contrast'] .felt { background: #000; }
+[data-theme='contrast'] .scene { background: #000; }
+
+/* ---------- the wall ---------- */
+
+.wall { display: contents; }
+.stack {
+  position: absolute;
+  width: calc(var(--tile-w) * 0.30);
+  height: calc(var(--tile-h) * 0.26);
+  border-radius: 3px;
+  background: linear-gradient(#f2ead6, #cdbf9e);
+  border: 1px solid #8d7c58;
+  /* Lifted off the felt so the ring reads as a stack two tiles high. */
+  box-shadow: 0 -3px 0 #e3d8bd, 0 -3px 0 1px #8d7c58;
+}
+[data-theme='contrast'] .stack { background: #fff; border-color: #000; box-shadow: 0 -3px 0 #fff, 0 -3px 0 1px #000; }
+.stack-far { top: 4%; left: var(--at); transform: translateX(-50%); }
+.stack-near { bottom: 4%; left: var(--at); transform: translateX(-50%); }
+.stack-left { left: 4%; top: var(--at); transform: translateY(-50%) rotate(90deg); }
+.stack-right { right: 4%; top: var(--at); transform: translateY(-50%) rotate(90deg); }
+
+/* ---------- opponents ---------- */
+
+.seat {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  /* Stand the rack up out of the table tilt, so it faces you like a real one. */
+  transform: translateZ(30px) rotateX(calc(var(--tilt) * -1));
+  transform-origin: 50% 100%;
+}
+.seat-far { bottom: 74%; left: 26%; width: 48%; }
+.seat-left { bottom: 44%; left: 3%; width: 30%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
+.seat-right { bottom: 44%; right: 3%; width: 30%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(-16deg); }
+
+/* The name plate stays square to the reader — skewed text is what this app exists to avoid. */
+.seat-plate {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-on-felt);
+  max-width: 100%;
+}
+[data-theme='contrast'] .seat-plate { background: #000; border: 2px solid #fff; }
+.seat.active .seat-plate { background: var(--highlight); color: var(--ink); }
+.seat-name { font-weight: 800; font-size: calc(15px * var(--tile-scale)); }
+.seat-turn { color: var(--accent); }
+.seat.active .seat-turn { color: var(--ink); }
+.seat-meta { font-size: calc(13px * var(--tile-scale)); opacity: 0.9; }
+
+/* A face-down tile. `flex: none` matters: without it a rack of 13 collapses to nothing. */
+.tile-back {
+  flex: none;
+  width: calc(var(--tile-w) * 0.30);
+  height: calc(var(--tile-h) * 0.36);
+  border-radius: 4px;
+  background: repeating-linear-gradient(45deg, #2f7d5b, #2f7d5b 4px, #266649 4px, #266649 8px);
+  border: 2px solid #1d4d38;
+  box-shadow: 0 2px 0 #17553b;
+}
+[data-theme='contrast'] .tile-back { background: #333; border-color: #fff; box-shadow: none; }
+
+.rack { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 100%; }
+.seat-open { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 100%; }
+.seat-meld { display: flex; gap: 2px; padding: 3px; border-radius: 7px; background: rgba(0, 0, 0, 0.35); }
+/* Exposed sets sit smaller than the rack: a player with three or four melds would otherwise grow
+   tall enough to push their own name plate off the top of the table. */
+.seat-meld .tile.small {
+  width: calc(var(--tile-w) * 0.46);
+  height: calc(var(--tile-h) * 0.46);
+}
+[data-theme='contrast'] .seat-meld { background: #000; border: 2px solid #fff; }
+
+/* ---------- discards, pooled in the middle ---------- */
+
+.pool {
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  top: 40%;
+  bottom: 7%;
+  display: flex;
+  flex-wrap: wrap;
+  /* Fill from the bottom. In a long hand the pool overflows, and clipping the oldest discards is
+     far better than clipping the newest one — that is the tile a decision depends on. */
+  align-content: flex-end;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+  transform: translateZ(12px);
+}
+.pool-empty {
+  margin: auto;
+  color: var(--text-on-felt);
+  opacity: 0.6;
+  font-size: calc(14px * var(--tile-scale));
+}
+[data-theme='contrast'] .pool-empty { opacity: 1; }
+
+/* The tile just thrown stands up at full size — it is the one thing on the table a decision
+   actually depends on, so it must not be foreshortened with everything else. */
+.pool-latest {
+  transform: translateZ(18px) rotateX(calc(var(--tilt) * -1)) translateY(-8%);
+  transform-origin: 50% 100%;
+  z-index: 2;
+}
+
+/* ---------- tiles ---------- */
+
+.tile {
+  width: var(--tile-w);
+  height: var(--tile-h);
+  border-radius: 9px;
+  border: 3px solid var(--tile-edge);
+  background: var(--tile-face);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  min-height: 0;
+  box-shadow: 0 3px 0 var(--tile-edge);
+  flex: none;
+}
+/* Traditional faces are SVG, so they scale with the tile — and therefore with the size slider —
+   without any font-size arithmetic. */
+.tile-face { width: 100%; height: 100%; display: block; padding: 6%; }
+
+/* Big-numbers style. */
+.tile .main { font-size: calc(var(--tile-h) * 0.42); line-height: 1; font-weight: 800; }
+.tile .sub { font-size: calc(var(--tile-h) * 0.22); line-height: 1; font-weight: 700; }
+
+/* Suit colour is a secondary cue only — the glyph and label already identify every tile. */
+.tile.k-d .sub { color: #1558a8; }
+.tile.k-b .sub { color: #12713f; }
+.tile.k-c .sub { color: #a3231b; }
+.tile.k-dragon .main { color: #a3231b; }
+.tile.k-bonus .main { color: #9a6b12; }
+[data-theme='contrast'] .tile .main,
+[data-theme='contrast'] .tile .sub { color: #000; }
+
+.tile.small { --tile-scale-inner: 0.62; width: calc(var(--tile-w) * 0.62); height: calc(var(--tile-h) * 0.62); box-shadow: none; }
+.tile.small .main { font-size: calc(var(--tile-h) * 0.26); }
+.tile.small .sub { font-size: calc(var(--tile-h) * 0.14); }
+
+.tile.selectable:hover { transform: translateY(-6px); }
+.tile.just-drawn { border-color: var(--highlight); box-shadow: 0 0 0 4px var(--highlight); }
+.tile.dimmed { opacity: 0.55; }
+
+/* ---------- your hand ---------- */
+
+/* Your side of the table. Outside the perspective entirely: full size, square to you, tap targets
+   untouched. The wooden ledge ties it to the table rim without altering a single tile. */
+.hand-area {
+  background: var(--panel);
+  border-top: 10px solid var(--rim, #6b4a2a);
+  border-radius: 0;
+  padding: 12px 16px 14px;
+  box-shadow: 0 -12px 26px rgba(0, 0, 0, 0.4);
+  position: relative;
+  z-index: 3;
+  max-height: 46vh;
+  overflow-y: auto;
+  /* Reserved so a wrapped row of tiles never ends up underneath the Help button. */
+  padding-right: calc(150px * var(--tile-scale) * 0.75);
+}
+@media (max-width: 640px) { .hand-area { padding-right: 16px; padding-bottom: 76px; } }
+[data-theme='contrast'] .hand-area { border-top-color: #fff; }
+.hand-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.hand-header .you { font-weight: 800; font-size: calc(19px * var(--tile-scale)); }
+.hand-tiles { display: flex; flex-wrap: wrap; gap: 8px; }
+.meld-group { display: flex; gap: 3px; padding: 5px; border: 2px dashed var(--panel-edge); border-radius: 10px; }
+
+.prompt {
+  margin: 0 0 10px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* ---------- call bar: highlighted legal moves ---------- */
+
+.callbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--highlight);
+  border: 3px solid var(--ink);
+}
+[data-theme='contrast'] .callbar { background: #000; border-color: var(--highlight); }
+.callbar .label { font-weight: 800; }
+[data-theme='contrast'] .callbar .label { color: var(--highlight); }
+.callbar button { border-color: var(--ink); }
+
+/* ---------- dialogs ---------- */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 10;
+}
+.dialog {
+  background: var(--panel);
+  border: 4px solid var(--panel-edge);
+  border-radius: 18px;
+  padding: 24px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+}
+.dialog h2 { margin: 0 0 14px; font-size: calc(24px * var(--tile-scale)); }
+.dialog .row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 20px; }
+.dialog .row button { flex: 1 1 160px; }
+.confirm-tile { display: flex; justify-content: center; margin: 18px 0; }
+
+/* ---------- settings ---------- */
+
+.setting { margin-bottom: 20px; }
+.setting > label { display: block; font-weight: 800; margin-bottom: 8px; }
+.setting input[type='range'] { width: 100%; height: var(--tap); }
+.toggle { display: flex; align-items: center; gap: 12px; min-height: var(--tap); font-weight: 600; }
+.toggle input { width: 28px; height: 28px; flex: none; }
+.rules-list { border-top: 2px solid var(--panel-edge); padding-top: 12px; }
+.rules-list h3 { margin: 0 0 6px; font-size: calc(18px * var(--tile-scale)); }
+.hint { color: var(--muted); font-weight: 400; margin: 0 0 10px; font-size: calc(15px * var(--tile-scale)); }
+
+/* ---------- score sheet ---------- */
+
+.score-table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+.score-table td { padding: 8px 4px; border-bottom: 2px solid var(--panel-edge); }
+.score-table td.tai { text-align: right; font-weight: 800; white-space: nowrap; }
+.score-total { display: flex; justify-content: space-between; font-size: calc(21px * var(--tile-scale)); font-weight: 800; }
+.limit-note { color: var(--accent); font-weight: 700; }
+[data-theme='contrast'] .limit-note { color: #000; }
+
+/* ---------- narration log ---------- */
+
+.log {
+  padding: 10px 20px;
+  background: var(--ink);
+  color: #eef4f0;
+  font-size: calc(15px * var(--tile-scale));
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+}
+[data-theme='contrast'] .log { background: #000; color: #fff; border-top: 3px solid #fff; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ---------- help coach ---------- */
+
+.coach-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: calc(var(--tap) * 1.15);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 3px solid var(--accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+[data-theme='contrast'] .coach-fab { border-color: var(--highlight); }
+.coach-fab > span[aria-hidden] {
+  font-size: calc(24px * var(--tile-scale));
+  font-weight: 900;
+  line-height: 1;
+}
+.coach-fab-text { font-size: calc(17px * var(--tile-scale)); }
+
+/* A quiet mark when a call is available — never a popup, never a sound, never a timer. */
+.coach-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--highlight);
+  border: 3px solid var(--ink);
+}
+
+.coach-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20;
+  width: min(440px, calc(100vw - 40px));
+  max-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 4px solid var(--panel-edge);
+  border-radius: 18px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+[data-theme='contrast'] .coach-panel { border-color: var(--highlight); }
+
+.coach-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 3px solid var(--panel-edge);
+}
+.coach-head h2 { margin: 0; flex: 1; font-size: calc(20px * var(--tile-scale)); }
+
+.coach-answers { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.coach-intro { margin: 0; color: var(--muted); }
+.coach-q {
+  margin: 14px 0 6px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.coach-a {
+  background: var(--highlight);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+[data-theme='contrast'] .coach-a { background: #000; color: var(--highlight); border-color: var(--highlight); }
+.coach-a strong { display: block; margin-bottom: 6px; font-size: calc(18px * var(--tile-scale)); }
+.coach-a p { margin: 0 0 6px; line-height: 1.45; }
+.coach-a p:last-child { margin-bottom: 0; }
+
+.coach-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 3px solid var(--panel-edge);
+}
+.coach-quick button {
+  flex: 1 1 auto;
+  font-size: calc(15px * var(--tile-scale));
+  font-weight: 600;
+  padding: 0 12px;
+}
+
+.coach-ask { display: flex; gap: 10px; padding: 0 16px 14px; }
+.coach-ask input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 12px;
+  font: inherit;
+  border-radius: 12px;
+  border: 3px solid var(--panel-edge);
+  background: var(--tile-face);
+  color: var(--ink);
+}
+.coach-ask input:focus-visible { outline: 4px solid var(--highlight); outline-offset: 2px; }
+
+/* On a narrow screen the coach becomes a bottom sheet, so it never covers the hand. */
+@media (max-width: 640px) {
+  .coach-panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 82vh;
+    border-radius: 18px 18px 0 0;
+  }
+  .coach-fab { right: 12px; bottom: 12px; }
+}
+
+/* A deep angle costs vertical space, which the hand needs more than the table does.
+
+   On a small screen a table and thirteen large tiles genuinely do not both fit in one viewport, so
+   the page scrolls rather than cropping the far seat off the top. The table keeps a guaranteed
+   minimum height so it never collapses to a sliver. */
+@media (max-width: 900px) {
+  .app { height: auto; min-height: 100vh; overflow: visible; }
+  /* A definite height, not flex:1 — once the page scrolls the parent has no definite height, and
+     the surface's height:100% would collapse against it. */
+  .scene { flex: none; height: 50vh; min-height: 340px; padding: 10px 10px 0; }
+  .hand-area { max-height: none; overflow: visible; }
+  .table { --tilt: 30deg; --table-scale: 1.02; }
+  .seat-far { bottom: 68%; }
+  .seat-left, .seat-right { bottom: 42%; }
+  .rack .tile-back { width: calc(var(--tile-w) * 0.24); height: calc(var(--tile-h) * 0.28); }
+  /* A short table leaves the pool very little room, so give it more of the width. */
+  .pool { left: 18%; right: 18%; top: 52%; bottom: 4%; }
+}
+@media (max-width: 640px) {
+  .table { --tilt: 24deg; --table-scale: 1; }
+  .surface { border-width: 10px; }
+}
+
+/* Some people find a tilted plane disorienting; respect the system setting. */
+@media (prefers-reduced-motion: reduce) {
+  .table { --tilt: 0deg; --table-scale: 1; }
+  .scene { perspective: none; }
+}
