@@ -268,17 +268,19 @@ test('a discard tied with the recommended tile is not read as a mistake', () => 
 
 test('a discard tied for best is not a mistake even when bestDiscard() truncates it out of alternatives', () => {
   const state = newGame(rules, 0);
-  // 3 complete sets plus five lone honours: discarding any one of the five leaves the same
-  // shanten, but bestDiscard()'s `alternatives` list is capped at two entries (it's written for
-  // the coach's UI text, not as a completeness signal), so only two of the four ties show up
-  // there. `wn` and `dr` are the two left out.
-  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'c7', 'c8', 'c9', 'we', 'ws', 'ww', 'wn', 'dr'];
+  // A genuine 4-way tie found by search (real ukeire makes hand-building one directly impractical —
+  // see puzzles.js's difficultyOf() for why exact ties got much rarer): 'ws', 'b1', 'b4' and 'b8'
+  // all land on the same blended score here. bestDiscard()'s `alternatives` list is capped at two
+  // entries (it's written for the coach's UI text, not as a completeness signal), so discarding
+  // 'b4' — tied with the recommended 'ws' exactly like 'b1'/'b8' are — must still not be read as a
+  // mistake even though `alternatives` only ever lists two of the other three.
+  state.players[0].hand = ['d5', 'd7', 'd7', 'd8', 'b1', 'b4', 'b8', 'c3', 'c5', 'c8', 'c9', 'ws', 'ww', 'ww'];
 
-  discardTile(state, 'dr');
+  discardTile(state, 'b4');
 
   const entry = state.decisions.at(-1);
-  assert.equal(entry.recommended, 'we');
-  assert.equal(entry.chosen, 'dr');
+  assert.equal(entry.recommended, 'ws');
+  assert.equal(entry.chosen, 'b4');
   assert.equal(entry.shantenAfterChosen, entry.shantenAfterRecommended);
   assert.equal(entry.optimal, true);
 });

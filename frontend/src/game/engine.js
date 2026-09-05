@@ -6,7 +6,7 @@
 import { buildWall, isBonus, sortTiles, tileName } from './tiles.js';
 import { getClaimsFor, getSelfKongs, isWinningHand, bestClaim } from './melds.js';
 import { scoreHand, settle, seatWindOf } from './scoring.js';
-import { shanten, bestDiscard, claimAdvice } from './advisor.js';
+import { shanten, bestDiscard, evaluateDiscard, contextFor, claimAdvice, blendedTie } from './advisor.js';
 
 export const SEAT_NAMES = ['You', 'Ah Ma', 'Ah Gong', 'Ah Huat'];
 
@@ -125,11 +125,10 @@ function drawReplacement(state) {
  * `bestDiscard`, the exact function the live coach uses to judge a position, so this is by
  * construction the same recommendation the coach would give at the same moment.
  */
-function recordDiscardDecision(player, chosen) {
-  const rec = bestDiscard(player);
-  const rest = [...player.hand];
-  rest.splice(rest.indexOf(chosen), 1);
-  const shantenAfterChosen = shanten(rest, player.melds);
+function recordDiscardDecision(state, player, chosen) {
+  const ctx = contextFor(state, player);
+  const rec = bestDiscard(player, ctx);
+  const chosenEval = evaluateDiscard(player, chosen, ctx);
 
   return {
     type: 'discard',
@@ -138,13 +137,17 @@ function recordDiscardDecision(player, chosen) {
     chosen,
     recommended: rec.tile,
     shantenBefore: shanten(player.hand, player.melds),
-    shantenAfterChosen,
+    shantenAfterChosen: chosenEval.after,
     shantenAfterRecommended: rec.shantenAfter,
     reasons: rec.reasons,
-    // Compare the resulting shanten directly, not membership in `alternatives` — that list is
-    // capped at two entries for the coach's UI text ("X is just as good"), so a four-way tie for
-    // best would wrongly flag the fourth tile as a mistake if used as the correctness signal.
-    optimal: shantenAfterChosen === rec.shantenAfter,
+    // Compare the blended (speed + value) score directly, not membership in `alternatives` — that
+    // list is capped at two entries for the coach's UI text ("X is just as good"), so a four-way
+    // tie for best would wrongly flag the fourth tile as a mistake if used as the correctness
+    // signal. Now that bestDiscard() can prefer a marginally slower tile for its value, comparing
+    // resulting shanten alone would also wrongly flag a tile that matches speed but not value (or
+    // credit one that matches neither) — the blended score is the only number that actually
+    // reflects what was recommended and why.
+    optimal: blendedTie(chosenEval.blended, rec.blended),
   };
 }
 
@@ -154,7 +157,7 @@ export function discardTile(state, tile) {
   const i = p.hand.indexOf(tile);
   if (i === -1) return state;
 
-  if (p.isHuman) state.decisions.push(recordDiscardDecision(p, tile));
+  if (p.isHuman) state.decisions.push(recordDiscardDecision(state, p, tile));
 
   p.hand.splice(i, 1);
   state.discards.push({ tile, by: p.seat });

@@ -6,24 +6,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { bestDiscard } from '../src/game/advisor.js';
+import { DEFAULT_RULES } from '../src/game/scoring.js';
 import { tryDiscardPuzzle, checkDiscardAnswer } from '../src/game/puzzles.js';
+
+// Matches puzzles.js's own internal puzzleContext() exactly: default house rules, seated East,
+// with only the hand itself visible (no discard history) — a puzzle has no live game state behind
+// it to build a real context from.
+const ctxFor = (hand) => {
+  const visibleTiles = {};
+  for (const t of hand) visibleTiles[t] = (visibleTiles[t] || 0) + 1;
+  return { rules: DEFAULT_RULES, seatWind: 'we', prevailingWind: 'we', visibleTiles };
+};
 
 test('an already-complete hand is rejected — there is nothing to discard toward', () => {
   const winning = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'c9', 'we', 'we'];
   assert.equal(tryDiscardPuzzle(winning), null);
 });
 
-test('a hand where every discard leaves the same shanten is rejected — nothing to teach', () => {
-  // 14 tiles spaced 3 ranks apart in every suit, plus every honour: no two are close enough to
-  // form a run or a pair, so discarding any one of them leaves the same (maximum) distance.
-  const scattered = ['d1', 'd4', 'd7', 'b1', 'b4', 'b7', 'c1', 'c4', 'c7', 'we', 'ws', 'ww', 'wn', 'dr'];
-  assert.equal(tryDiscardPuzzle(scattered), null);
+test('a hand where every discard ties for the same best blended score is rejected — nothing to teach', () => {
+  // Genuinely degenerate under bestDiscard()'s real ukeire too, not just structurally symmetric:
+  // 3 complete triplets plus a spare-tile quad, all plain suited tiles (no honours, no value credit
+  // at all) — already tenpai, and breaking down any one of the four groups leaves an equally-ready
+  // hand with the exact same ukeire (8). Ukeire differentiates almost everything now (see
+  // puzzles.js's difficultyOf() for the full story), so this had to be found by search over hands
+  // biased toward few, heavily-repeated tile kinds rather than the kind of scattered hand that used
+  // to make a degenerate fixture easy to hand-build.
+  const degenerate = ['d4', 'd4', 'd4', 'b6', 'b6', 'b6', 'c4', 'c4', 'c4', 'c4', 'c5', 'c5', 'c5', 'c5'];
+  assert.equal(tryDiscardPuzzle(degenerate), null);
 });
 
 test('an ordinary hand becomes a puzzle matching bestDiscard() directly', () => {
   // Same hand as advisor.test's "bestDiscard picks the dead tile and says why".
   const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
-  const rec = bestDiscard({ hand, melds: [] });
+  const rec = bestDiscard({ hand, melds: [], bonus: [] }, ctxFor(hand));
 
   const puzzle = tryDiscardPuzzle(hand);
   assert.ok(puzzle, 'an ordinary hand should produce a puzzle');
@@ -50,9 +65,13 @@ test('a hand ready to win, with only one dead tile, is a hard puzzle — the bes
 });
 
 test('a scattered, far-from-ready hand with many equally fine discards is an easy puzzle', () => {
-  const hand = ['d1', 'd4', 'd8', 'd9', 'b1', 'b1', 'b2', 'b6', 'c4', 'c8', 'we', 'ww', 'dr', 'dw'];
+  // Real ukeire differentiates almost every candidate now (see puzzles.js's difficultyOf() for the
+  // full story), so a 4-way tie this far from tenpai is already a fairly forgiving puzzle — the old
+  // fixture here had drifted to a 2-way ("medium") tie once bestDiscard() gained ukeire, so this
+  // hand was found fresh by search rather than reused.
+  const hand = ['b2', 'b3', 'b3', 'b9', 'c3', 'c6', 'c9', 'we', 'we', 'ww', 'wn', 'dr', 'dr', 'dw'];
   const puzzle = tryDiscardPuzzle(hand);
-  assert.equal(puzzle.tieCount, 11);
+  assert.equal(puzzle.tieCount, 4);
   assert.equal(puzzle.difficulty, 'easy');
 });
 

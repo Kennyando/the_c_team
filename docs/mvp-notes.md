@@ -119,9 +119,12 @@ than composing one, which suits the audience anyway.
 - `src/components/Coach.jsx` — the panel. Scales with the size slider, works in the contrast theme,
   becomes a bottom sheet on narrow screens, and reads answers aloud when voice is on.
 
-Discard advice ranks each tile by **how close the hand would still be after letting it go**, which
-makes it better founded than the bots' own play — they only consult `keepValue`, which the coach
-uses just as a tie-break. Both share that one function, so advice and play cannot drift apart.
+Discard advice ranks each tile by a blend of **how close the hand would still be after letting it
+go** and **how much the resulting hand is likely to be worth** (`estimateValue()` in `advisor.js`),
+not raw speed alone. This makes it better founded than the bots' own play — they still only consult
+`keepValue`, a pure speed heuristic, which the coach now uses only as a final tie-break beneath both
+of those. The live coach, the decision log and discard puzzles all share this one `bestDiscard()`,
+so advice, mistake-tracking and puzzle answers can never disagree with each other.
 
 Proactive hints are **off by default**: when switched on, the Help button gets a quiet mark when a
 call is available and the panel leads with a tip. Nothing pops up, nothing makes a sound, and there
@@ -201,8 +204,59 @@ These are deliberate MVP boundaries, not defects:
    defense" section), so it's deliberately rate-limited and concurrency-capped rather than
    authenticated — appropriate for a same-table coach, but worth revisiting if this ever needs
    real accounts.
-8. **Discard advice optimises for speed to a win, not defence.** It does not weigh how dangerous a
-   tile is to throw, because the bots do not play to win off discards yet.
+8. **Discard advice now weighs hand value alongside speed, but mostly as a tie-breaker in
+   practice — partially addressed.** `bestDiscard()`/`evaluateDiscard()` in `advisor.js` blend
+   resulting shanten with `estimateValue()`: an exact expected-value calculation at tenpai (real
+   `scoreHand()` weighted by how many copies of each winning tile are still unseen) and a
+   hand-authored heuristic before it (credit for a dragon, seat-wind or prevailing-wind
+   pair/lone-tile, and a flush lean — but only for patterns the table's own house rules actually
+   reward). The blend is deliberately bounded to within one shanten of the fastest tile —
+   `VALUE_PER_SHANTEN` sets the exchange rate, a starting guess rather than a derived number — so
+   it can in principle keep a marginally slower tile that protects real scoring potential. In
+   practice a ~20,000-hand random simulation found that override essentially never fires with the
+   current weights; the measured improvement is richer **tie-breaking** among tiles that already
+   tie on speed, which used to fall through to `keepValue` and pick the same lone honour almost
+   every time. Five of the 9 curated puzzles changed which tile they recommend once this landed,
+   three of them switching from a lone honour to a suited tile. It still does not weigh how
+   dangerous a tile is to throw, because the bots do not play to win off discards yet.
+
+   A round of PR review on this feature caught and fixed a real bug: `contextFor()`'s own doc
+   comment always said opponents' concealed hands are unknown, but the implementation summed every
+   seat's hand, not just the deciding player's — silently leaking full knowledge of every hidden
+   hand into the live coach's and decision log's value estimate (puzzles were unaffected; they build
+   their own fixed context, never a live one). Fixed, with a regression test. Two smaller
+   robustness fixes landed alongside it: blended-score comparisons now use a small floating-point
+   tolerance (`blendedTie()`) instead of `===`, since a weighted-average division can land a
+   conceptual tie a sliver off exact equality; and the flush-lean heuristic's hard cliff at exactly
+   10 same-suit tiles was replaced with a graduated credit based on how concentrated a hand's suited
+   tiles already are (still gated on holding at least 7 suited tiles, so a small honour-heavy hand
+   can't earn a "100% concentrated" credit by chance).
+
+   A proposal to add real ukeire (tile-acceptance counts, weighted by remaining unseen copies) was
+   first benchmarked and declined on cost grounds (~22x slower per `bestDiscard()` call), then
+   revisited and adopted on explicit instruction to accept that cost for a more robust ranking.
+   `improvingTiles()` in `advisor.js` now computes it directly (a `shanten()` call per standard tile
+   kind on the resulting hand), folded into the same `blended` score everything already shares:
+   `-shantenAfter * VALUE_PER_SHANTEN + value + UKEIRE_WEIGHT * log1p(ukeire)`. This is a real
+   quality improvement, not just a slower version of the same advice — two discards can leave the
+   exact same *shanten* while leaving very different real chances of advancing next draw, something
+   the coarse integer alone could never see, and ukeire is the field-standard measure that does.
+   The cost is real: ~51ms per `bestDiscard()` call (vs. ~2ms without it), and because ukeire
+   differentiates almost every non-symmetric candidate, exact ties collapsed hard — the puzzle
+   difficulty thresholds (`tieCount`-based, see `puzzles.js`) needed a third recalibration, and 8 of
+   the 9 curated puzzles needed fresh hands under the new tie distribution (53% of random hands now
+   have a *uniquely* best tile). It's worth being precise about what this measures: ukeire here is
+   *immediate*, one-draw acceptance, not a lookahead over several draws — a real improvement over
+   shanten alone, but still an approximation of "fastest, highest-value path to a win," not a
+   guarantee of one.
+
+   `evaluateDiscard()` (now the shared grading primitive for the coach, decision log, *and* puzzle
+   checking) had the same invalid-tile gap `checkDiscardAnswer()` was fixed for earlier: passing a
+   tile that isn't actually in the hand relied on every caller already knowing not to do that,
+   rather than the function refusing outright. It now throws. No production caller was ever
+   affected (`bestDiscard()`/`tryDiscardPuzzle()` only ever pass a tile drawn from the hand itself;
+   `discardTile()`/`checkDiscardAnswer()` already validated first) — this closes the gap for
+   whoever calls it next.
 9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
    entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
    claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it
@@ -214,6 +268,38 @@ These are deliberate MVP boundaries, not defects:
    puzzle to `state.decisions` or a player's own past mistakes, there is no claim-puzzle or
    post-game-review counterpart, and the library is a fixed 9 puzzles (3 per difficulty) with no
    solved/unsolved tracking yet.
+10. **Puzzle difficulty is coupled to the evaluator's own discriminating power, not to human
+    difficulty — a known architectural limitation, not yet addressed.** `difficultyOf()` in
+    `puzzles.js` buckets a puzzle by `tieCount`: how many distinct tiles `bestDiscard()` currently
+    can't tell apart. That's a measure of the *evaluator's* blind spots, not of how hard a position
+    actually is for a person to read — the two only coincide if the evaluator is already a perfect
+    proxy for human judgment, which it isn't and won't be after the next improvement either. The
+    evidence is direct, not theoretical: `tieCount` thresholds have now been recalibrated three
+    times in this project's history (once for the original metric, once when value-awareness
+    landed, once when ukeire landed), each recalibration was needed purely because the evaluator got
+    better at distinguishing candidates, and the third one alone flipped 8 of the 9 curated puzzles'
+    difficulty labels and left 53% of random hands with a *uniquely* best tile — none of which
+    implies the underlying positions got easier or harder for an actual player to reason about.
+
+    Two directions were considered for a more stable difficulty signal, deliberately not built yet:
+    - **Score margin / candidate ambiguity** — the gap between the best candidate's `blended` score
+      and the runner-up, as a continuous value rather than an exact-tie count. Buildable today with
+      the existing evaluator and no new infrastructure, and it degrades gracefully instead of
+      flipping categorically at a tie/not-tie boundary. Not a full fix, though: the gap is measured
+      in "blended score units," which are only as stable as `VALUE_PER_SHANTEN`/`UKEIRE_WEIGHT`
+      (both already flagged elsewhere in this document as starting guesses, not derived numbers) —
+      a future weight retune would still shift margin-based thresholds, just less violently than a
+      tie-count flip does.
+    - **Real player success data** — pass/fail rates on each puzzle, the actual ground truth for
+      human-perceived difficulty, fully decoupled from the evaluator by construction. This needs
+      infrastructure the app doesn't have: accounts, backend persistence, and telemetry are all
+      Phase 3+ (see "State is in memory only," above) — not a client-side change.
+
+    The deliberate decision for now: keep *correctness* (`bestTile`, `checkDiscardAnswer()`) tied to
+    the live evaluator, since a puzzle's answer should always match what the current coach would
+    actually recommend — but treat the *difficulty label* as a separate, softer concern that this
+    project is intentionally not solving yet, rather than continuing to patch tie-count thresholds
+    every time the evaluator improves.
 
 ## Deferred to later phases
 

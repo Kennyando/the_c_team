@@ -8,7 +8,7 @@ import { tileName } from '../src/game/tiles.js';
 import { newGame, discardTile } from '../src/game/engine.js';
 import { DEFAULT_RULES } from '../src/game/scoring.js';
 import {
-  shanten, waits, bestDiscard, claimAdvice, handSummary, describeDistance, situationHint,
+  shanten, waits, bestDiscard, contextFor, claimAdvice, handSummary, describeDistance, situationHint,
 } from '../src/game/advisor.js';
 import {
   ask, askWithModel, INTENTS, QUICK_QUESTIONS, STATIC_ANSWERS, MAX_LINES, MAX_LINE_LENGTH,
@@ -16,6 +16,16 @@ import {
 
 const rules = { ...DEFAULT_RULES };
 const player = (hand, melds = [], bonus = []) => ({ seat: 0, hand, melds, bonus, points: 0 });
+
+// bestDiscard() now needs a ctx (house rules, seat/prevailing wind, and which tiles are already
+// visible) to weigh value alongside speed — these hand-built fixtures have no live game state
+// behind them, so this stands in for contextFor(), fixed to seat/prevailing East and treating only
+// the hand itself as visible (matching how a fresh, isolated test hand has no discard history).
+const ctxFor = (hand) => {
+  const visibleTiles = {};
+  for (const t of hand) visibleTiles[t] = (visibleTiles[t] || 0) + 1;
+  return { rules, seatWind: 'we', prevailingWind: 'we', visibleTiles };
+};
 
 // --- position maths ---------------------------------------------------------
 
@@ -55,7 +65,7 @@ test('waits lists exactly the tiles that finish the hand', () => {
 test('bestDiscard picks the dead tile and says why', () => {
   // Everything works together except b9, which touches nothing.
   const p = player(['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9']);
-  const advice = bestDiscard(p);
+  const advice = bestDiscard(p, ctxFor(p.hand));
   assert.equal(advice.tile, 'b9');
   assert.equal(advice.shantenAfter, 0); // discarding it leaves you ready
   assert.ok(advice.reasons.length > 0, 'advice should explain itself');
@@ -64,7 +74,7 @@ test('bestDiscard picks the dead tile and says why', () => {
 
 test('bestDiscard keeps a pair over a lone honour', () => {
   const p = player(['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c7', 'we', 'we', 'dg']);
-  const advice = bestDiscard(p);
+  const advice = bestDiscard(p, ctxFor(p.hand));
   assert.equal(advice.tile, 'dg', 'the lone green dragon should go, not half a pair');
 });
 
