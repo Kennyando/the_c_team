@@ -2033,3 +2033,41 @@ of old history should flag a grade from a superseded evaluator. `agents/README.m
 list updated from "not recorded" to "stamped, not consumed".
 
 Tests: frontend 103/103 node + 13/13 component + build; agents 17/17; backend tsc clean.
+
+---
+
+# Bedrock: US inference profile + us-east-1
+
+The hackathon sandbox's org SCP denies `bedrock:InvokeModel` outside `ap-southeast-1`, and Nova
+Micro has no bare on-demand id in `ap-southeast-1` — only the `apac.` cross-region inference
+profile, which needs the very regions the SCP blocks. `us.amazon.nova-micro-v1:0` in `us-east-1`
+works (verified with `aws bedrock-runtime converse`), which the hackathon instructions point at.
+
+## Todo
+
+- [x] `backend/bin/app.ts` — region default `ap-southeast-1` → `us-east-1` (still `CDK_DEFAULT_REGION`-overridable)
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `bedrockModelId` / `agentModelId` default →
+     `us.amazon.nova-micro-v1:0`; new `bedrockInvokeResources()` helper that returns the
+     profile ARN + region-wildcarded base-model ARN for a profile id, or the single
+     foundation-model ARN for a bare id; both Lambdas' `bedrock:InvokeModel` policies use it
+- [x] `backend/lambda/classifyIntent.ts`, `agents/src/model.js` — local-run fallback strings →
+     `us.amazon.nova-micro-v1:0` (dead in the deployed Lambda, which always gets the env var)
+- [x] `backend/README.md`, `agents/README.md` — region + model + IAM notes
+
+## Review
+
+CDK-only functional change. `bedrockInvokeResources()` detects an inference-profile id by its
+`us.` / `eu.` / `apac.` / `us-gov.` prefix and grants both the account-scoped
+`inference-profile/<id>` ARN (in the deploy region) and `bedrock:*::foundation-model/<baseId>`
+(region-wildcarded, still one model id) — that second ARN is what a cross-region profile actually
+needs, since it fans out to regional copies of the base model. A bare model id still gets just the
+one `<region>::foundation-model/<id>` ARN, unchanged. No Lambda code change: `ConverseCommand`
+takes a profile id as `modelId` directly.
+
+`cdk synth` verified: both `ClassifyIntentFn` and `ReviewHandFn` get
+`BEDROCK_MODEL_ID` / `AGENT_MODEL_ID = us.amazon.nova-micro-v1:0`, the two-ARN policy, region
+resolved to `us-east-1`. Tests unchanged (none assert a model id): backend 17/17, agents 17/17,
+frontend 103/103.
+
+Next: `cdk bootstrap` + `cdk deploy` in the sandbox, set `VITE_REVIEW_URL`, play a hand, confirm
+`modelAssisted: true` and that Nova Micro's prose is acceptable (or bump `-c agentModelId=`).

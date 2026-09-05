@@ -11,10 +11,12 @@
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 
 // AGENT_MODEL_ID is the knob for this package; it falls back to the same BEDROCK_MODEL_ID the
-// classify-intent Lambda already reads, then to Amazon Nova Micro — cheapest and fastest, and
-// fine until real testing shows a review needs more.
+// classify-intent Lambda already reads, then to the US cross-region inference profile for Amazon
+// Nova Micro — cheapest and fastest, and fine until real testing shows a review needs more. In
+// the deployed Lambda the CDK stack always sets AGENT_MODEL_ID; this fallback is for local runs,
+// and its profile prefix (us./eu./apac.) has to match the region.
 export const MODEL_ID =
-  process.env.AGENT_MODEL_ID || process.env.BEDROCK_MODEL_ID || 'amazon.nova-micro-v1:0';
+  process.env.AGENT_MODEL_ID || process.env.BEDROCK_MODEL_ID || 'us.amazon.nova-micro-v1:0';
 
 const client = new BedrockRuntimeClient({
   region: process.env.BEDROCK_REGION || process.env.AWS_REGION,

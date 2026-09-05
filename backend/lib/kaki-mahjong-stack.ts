@@ -170,11 +170,32 @@ export class KakiMahjongStack extends cdk.Stack {
     // keyword patterns miss. Stateless request/response — no room, no game
     // state — so it gets a plain HTTP route below rather than a WebSocket
     // one, and it does NOT share commonEnv/nodeFnDefaults' game-table wiring.
-    // Nova Micro: the cheapest/fastest Bedrock text model, well suited to a
-    // one-word classification task. Override with `-c bedrockModelId=...`
-    // (e.g. an Anthropic Claude Haiku model id) if your account's Bedrock
-    // model access differs.
-    const bedrockModelId = (this.node.tryGetContext("bedrockModelId") as string) || "amazon.nova-micro-v1:0";
+    //
+    // `us.amazon.nova-micro-v1:0` is the US cross-region inference profile
+    // for Amazon Nova Micro — the cheapest/fastest Bedrock text model, and
+    // in most regions now the only way to reach it (bare on-demand model
+    // ids return a ValidationException). It has to match the deploy region's
+    // scope: `us.` for us-*, `eu.` for eu-*, `apac.` for ap-*. Override with
+    // `-c bedrockModelId=...` for a different profile or a single-region
+    // model (e.g. an Anthropic Claude Haiku id) if your Bedrock access differs.
+    const bedrockModelId = (this.node.tryGetContext("bedrockModelId") as string) || "us.amazon.nova-micro-v1:0";
+
+    // bedrock:InvokeModel resource ARNs for a model id or a cross-region
+    // inference profile id. A profile (prefix `us.` / `eu.` / `apac.` /
+    // `us-gov.`) needs permission on both the profile itself and every
+    // regional copy of the base model it can route to — region-wildcarded
+    // here, still scoped to the one model id. A bare model id just needs the
+    // one foundation-model ARN (which carries no account segment).
+    const bedrockInvokeResources = (modelOrProfileId: string): string[] => {
+      const profile = modelOrProfileId.match(/^(?:us|eu|apac|us-gov)\.(.+)$/);
+      if (!profile) {
+        return [`arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${modelOrProfileId}`];
+      }
+      return [
+        `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}:${this.account}:inference-profile/${modelOrProfileId}`,
+        `arn:${cdk.Aws.PARTITION}:bedrock:*::foundation-model/${profile[1]}`,
+      ];
+    };
 
     // Cost guardrails: Bedrock is pay-per-call with no free tier, and this
     // route needs no credentials to hit (see the throttled HttpStage below),
@@ -202,13 +223,10 @@ export class KakiMahjongStack extends cdk.Stack {
       reservedConcurrentExecutions: coachApiConcurrency,
     });
 
-    // Bedrock foundation-model ARNs carry no account segment (they are not
-    // account-owned resources), unlike every other ARN in this stack.
-    const bedrockModelArn = `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${bedrockModelId}`;
     classifyIntentFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:InvokeModel"],
-        resources: [bedrockModelArn],
+        resources: bedrockInvokeResources(bedrockModelId),
       }),
     );
 
@@ -216,8 +234,8 @@ export class KakiMahjongStack extends cdk.Stack {
     // classify-intent: stateless HTTP, one Bedrock call whose output is strictly validated, any
     // failure degrading to a deterministic model-free review. Shares this route's rate caps and
     // the Budget below. `agentModelId` defaults to the same model as classify-intent; override
-    // with `-c agentModelId=amazon.nova-lite-v1:0` (or a Claude Haiku model id) if review prose
-    // needs to be richer once it's been tested.
+    // with `-c agentModelId=us.amazon.nova-lite-v1:0` (or a Claude Haiku id) if review prose
+    // needs to be richer once it's been tested — match the deploy region's profile prefix.
     const agentModelId = (this.node.tryGetContext("agentModelId") as string) || bedrockModelId;
 
     const reviewHandFn = new lambdaNode.NodejsFunction(this, "ReviewHandFn", {
@@ -231,11 +249,10 @@ export class KakiMahjongStack extends cdk.Stack {
       reservedConcurrentExecutions: coachApiConcurrency,
     });
 
-    const agentModelArn = `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${agentModelId}`;
     reviewHandFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:InvokeModel"],
-        resources: [agentModelArn],
+        resources: bedrockInvokeResources(agentModelId),
       }),
     );
 
