@@ -230,11 +230,22 @@ These are deliberate MVP boundaries, not defects:
    conceptual tie a sliver off exact equality; and the flush-lean heuristic's hard cliff at exactly
    10 same-suit tiles was replaced with a graduated credit based on how concentrated a hand's suited
    tiles already are (still gated on holding at least 7 suited tiles, so a small honour-heavy hand
-   can't earn a "100% concentrated" credit by chance). A proposal to add real ukeire (tile-acceptance
-   counts weighted by remaining copies) to the ranking was benchmarked and declined: it measured
-   ~22x slower per `bestDiscard()` call (1.95ms → 44ms across 200 sampled hands) — the same class of
-   regression that disqualified PR #8 — and conflicts with this feature's deliberate "lightweight
-   single-step estimate" scope decision.
+   can't earn a "100% concentrated" credit by chance).
+
+   A proposal to add real ukeire (tile-acceptance counts, weighted by remaining unseen copies) was
+   first benchmarked and declined on cost grounds (~22x slower per `bestDiscard()` call), then
+   revisited and adopted on explicit instruction to accept that cost for a more robust ranking.
+   `improvingTiles()` in `advisor.js` now computes it directly (a `shanten()` call per standard tile
+   kind on the resulting hand), folded into the same `blended` score everything already shares:
+   `-shantenAfter * VALUE_PER_SHANTEN + value + UKEIRE_WEIGHT * log1p(ukeire)`. This is a real
+   quality improvement, not just a slower version of the same advice — two discards can leave the
+   exact same *shanten* while leaving very different real chances of advancing next draw, something
+   the coarse integer alone could never see, and ukeire is the field-standard measure that does.
+   The cost is real: ~51ms per `bestDiscard()` call (vs. ~2ms without it), and because ukeire
+   differentiates almost every non-symmetric candidate, exact ties collapsed hard — the puzzle
+   difficulty thresholds (`tieCount`-based, see `puzzles.js`) needed a third recalibration, and 8 of
+   the 9 curated puzzles needed fresh hands under the new tie distribution (53% of random hands now
+   have a *uniquely* best tile).
 9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
    entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
    claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it

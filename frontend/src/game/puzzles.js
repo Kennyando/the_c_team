@@ -30,15 +30,17 @@ function puzzleContext(hand, discards) {
  * under single-tile removal, so it carries no difficulty signal at all. Tie count does vary
  * meaningfully across real hands.
  *
- * Thresholds were recalibrated (again checked against ~20,000 hands, this time through the
- * value-aware `bestDiscard()`) when `estimateValue()` gained a small credit for a single
- * scoring-relevant honour, not just a formed pair — that alone differentiates enough tiles that
- * ties got noticeably rarer, so the old cutoffs (from before value-awareness existed) would have
- * called almost everything 'hard'.
+ * Thresholds were recalibrated a third time (checked against ~2,000 hands — each sample is now
+ * expensive enough that 20,000 wasn't practical in one run, but the histogram's shape was already
+ * unambiguous well before that) when `bestDiscard()` gained real ukeire alongside value: weighing
+ * genuine tile-acceptance counts differentiates almost every non-symmetric candidate, so exact
+ * ties collapsed hard — 53% of sampled hands now have a *uniquely* best tile (tieCount 1), 30% have
+ * exactly two, and only 17% have three or more. The old cutoffs (tuned for a tie distribution from
+ * before ukeire existed) would have called nearly everything 'hard'.
  */
 function difficultyOf(tieCount) {
-  if (tieCount <= 4) return 'hard';
-  if (tieCount <= 6) return 'medium';
+  if (tieCount <= 1) return 'hard';
+  if (tieCount === 2) return 'medium';
   return 'easy';
 }
 

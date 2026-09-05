@@ -10,12 +10,13 @@
 // (via a throwaway random-hand search script) rather than invented, then hand-picked for this
 // library and frozen.
 //
-// `easy-1`/`medium-1`/`medium-2` were replaced once already: `bestDiscard()` became value-aware
-// (weighing a hand's realistic scoring potential alongside raw speed, not speed alone), which
-// changed which tile — and therefore which difficulty tier — some of these hands land in. Three
-// of the original nine drifted out of their tier under the new calculator; those three were
-// swapped for freshly-found hands re-verified against the updated tier thresholds, everything
-// else here still holds under the same calculator that changed.
+// `easy-1`/`medium-1`/`medium-2` were replaced once already when `bestDiscard()` became
+// value-aware, and 8 of these 9 were replaced again when it gained real ukeire on top of that:
+// weighing genuine tile-acceptance counts differentiates almost every non-symmetric discard, so
+// exact ties (this library's whole difficulty metric) collapsed hard, and the tier thresholds in
+// `puzzles.js` were recalibrated a third time to match. Only `medium-2` happened to still land in
+// its original tier under the new calculator and was kept unchanged; the other 8 were swapped for
+// freshly-found hands re-verified against the current thresholds.
 //
 // `discards`/`wallCount` are presentation only — a plausible-looking table, not a replayed game —
 // so a puzzle looks like a real mid-hand snapshot instead of an isolated list of 14 tiles.
@@ -26,30 +27,30 @@ const RAW = {
   easy: [
     {
       id: 'easy-1',
-      hand: ['d2', 'd5', 'd6', 'd9', 'b1', 'b3', 'b3', 'b9', 'c1', 'c2', 'c2', 'c7', 'c9', 'dr'],
-      discards: [{ tile: 'wn', by: 1 }, { tile: 'dw', by: 2 }, { tile: 'c1', by: 3 }],
+      hand: ['d5', 'd9', 'b2', 'b3', 'b4', 'c2', 'c3', 'c4', 'c4', 'c6', 'wn', 'dg', 'dg', 'dg'],
+      discards: [{ tile: 'ws', by: 1 }, { tile: 'dw', by: 2 }, { tile: 'd1', by: 3 }],
       wallCount: 70,
     },
     {
       id: 'easy-2',
-      hand: ['d1', 'd8', 'b1', 'b3', 'b5', 'b8', 'c4', 'c7', 'c8', 'c9', 'we', 'wn', 'dg', 'dw'],
-      discards: [{ tile: 'ws', by: 1 }, { tile: 'd9', by: 2 }, { tile: 'b1', by: 3 }, { tile: 'dr', by: 1 }],
+      hand: ['d4', 'd9', 'd9', 'd9', 'b6', 'b8', 'b8', 'c4', 'c7', 'c8', 'ws', 'ww', 'wn', 'dw'],
+      discards: [{ tile: 'we', by: 1 }, { tile: 'c1', by: 2 }, { tile: 'b1', by: 3 }, { tile: 'dr', by: 1 }],
       wallCount: 68,
     },
     {
       id: 'easy-3',
-      hand: ['d1', 'd5', 'd5', 'd6', 'd8', 'd9', 'b1', 'b4', 'b7', 'b9', 'c2', 'wn', 'wn', 'dg'],
-      discards: [{ tile: 'ww', by: 1 }, { tile: 'c1', by: 2 }, { tile: 'd1', by: 3 }],
+      hand: ['d1', 'd2', 'd4', 'd7', 'b4', 'b5', 'b7', 'b9', 'c1', 'c2', 'c5', 'c7', 'c8', 'dg'],
+      discards: [{ tile: 'ww', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'd9', by: 3 }],
       wallCount: 66,
     },
   ],
   medium: [
     {
       id: 'medium-1',
-      hand: ['d2', 'd7', 'd7', 'd8', 'd9', 'b1', 'b1', 'b5', 'b9', 'c3', 'c4', 'c5', 'c9', 'dg'],
+      hand: ['d3', 'd5', 'd7', 'd8', 'b1', 'b2', 'b7', 'b7', 'c2', 'c8', 'c9', 'we', 'wn', 'dr'],
       discards: [
-        { tile: 'wn', by: 1 }, { tile: 'd1', by: 2 }, { tile: 'c1', by: 3 },
-        { tile: 'ws', by: 1 }, { tile: 'b1', by: 2 },
+        { tile: 'ws', by: 1 }, { tile: 'd1', by: 2 }, { tile: 'c1', by: 3 },
+        { tile: 'b9', by: 1 }, { tile: 'd9', by: 2 },
       ],
       wallCount: 54,
     },
@@ -61,9 +62,9 @@ const RAW = {
     },
     {
       id: 'medium-3',
-      hand: ['d1', 'd1', 'd4', 'd4', 'd7', 'b2', 'b5', 'c1', 'c3', 'c7', 'we', 'we', 'ww', 'dg'],
+      hand: ['d1', 'd3', 'd5', 'd7', 'd9', 'd9', 'b2', 'b4', 'b7', 'b8', 'c2', 'c5', 'c7', 'c8'],
       discards: [
-        { tile: 'ws', by: 1 }, { tile: 'c9', by: 2 }, { tile: 'd9', by: 3 },
+        { tile: 'we', by: 1 }, { tile: 'c9', by: 2 }, { tile: 'ws', by: 3 },
         { tile: 'b1', by: 1 }, { tile: 'wn', by: 2 },
       ],
       wallCount: 50,
@@ -72,28 +73,28 @@ const RAW = {
   hard: [
     {
       id: 'hard-1',
-      hand: ['d1', 'd2', 'd4', 'd5', 'd8', 'd8', 'b7', 'b8', 'b9', 'c8', 'wn', 'dg', 'dg', 'dw'],
+      hand: ['d2', 'd3', 'd3', 'd7', 'b2', 'b3', 'b5', 'c2', 'c4', 'c6', 'c8', 'c9', 'ww', 'dr'],
       discards: [
         { tile: 'ws', by: 1 }, { tile: 'c1', by: 2 }, { tile: 'd9', by: 3 },
-        { tile: 'b1', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'c9', by: 3 },
+        { tile: 'b1', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'c7', by: 3 },
       ],
       wallCount: 38,
     },
     {
       id: 'hard-2',
-      hand: ['d4', 'd5', 'b2', 'b9', 'c2', 'c2', 'c6', 'c8', 'we', 'we', 'ww', 'wn', 'wn', 'dr'],
+      hand: ['d5', 'd9', 'd9', 'b5', 'b8', 'b8', 'c1', 'c5', 'c6', 'c9', 'ws', 'ww', 'ww', 'dg'],
       discards: [
-        { tile: 'd1', by: 1 }, { tile: 'c1', by: 2 }, { tile: 'ws', by: 3 },
-        { tile: 'b9', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'd9', by: 3 },
+        { tile: 'd1', by: 1 }, { tile: 'c2', by: 2 }, { tile: 'we', by: 3 },
+        { tile: 'b1', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'd8', by: 3 },
       ],
       wallCount: 36,
     },
     {
       id: 'hard-3',
-      hand: ['d5', 'd6', 'b5', 'b5', 'b5', 'b9', 'c1', 'c2', 'c5', 'c8', 'c9', 'ww', 'dw', 'dw'],
+      hand: ['d3', 'd4', 'd7', 'd9', 'b2', 'b3', 'b3', 'c1', 'c2', 'c5', 'c8', 'c9', 'ws', 'ws'],
       discards: [
-        { tile: 'ws', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'b1', by: 3 },
-        { tile: 'd9', by: 1 }, { tile: 'c1', by: 2 }, { tile: 'we', by: 3 },
+        { tile: 'we', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'b1', by: 3 },
+        { tile: 'd1', by: 1 }, { tile: 'c4', by: 2 }, { tile: 'ww', by: 3 },
       ],
       wallCount: 34,
     },

@@ -1677,3 +1677,85 @@ The `VALUE_PER_SHANTEN`/flush/honour weights are still named guesses, not derive
 `estimateValue()` past tenpai still never models what an opponent might be collecting; discard
 advice still doesn't weigh danger. See the original PR's "Known limits" above — nothing in this
 review round touched those boundaries, only the correctness and robustness of what already existed.
+
+# Adding real ukeire after all
+
+The previous round benchmarked the reviewer's ukeire proposal (~22x slower per `bestDiscard()`
+call) and declined it, on the grounds that it conflicted with this feature's "lightweight
+single-step estimate" scope decision. Explicitly asked to implement it anyway and accept the
+speed cost for a more robust ranking — a scope decision only the user could make, so this isn't
+reopening a settled question, it's a new instruction overriding the old one.
+
+## Todo
+
+- [x] 1. `advisor.js` — new `improvingTiles(player, ctx, current)` (private): the real ukeire —
+     total remaining copies (across every standard tile kind) of a tile that would move the hand
+     one step closer to winning. Takes the already-computed `current` shanten as a parameter rather
+     than recomputing it, since this function is already the expensive part of a `bestDiscard()`
+     call and there's no reason to pay for `shanten()` twice.
+- [x] 2. `advisor.js` — new `UKEIRE_WEIGHT = 0.5` constant (same "named, tunable guess" footing as
+     `VALUE_PER_SHANTEN`), and `evaluateDiscard()` now folds `UKEIRE_WEIGHT * Math.log1p(ukeire)`
+     into the one shared `blended` score, alongside the existing shanten and value terms — kept as
+     one number every consumer already reads, rather than adding ukeire as a separate ranking stage
+     coach/decision-log/puzzles would each need to know about. Log-scaled deliberately: the
+     difference between 2 outs and 6 outs is real, the difference between 40 and 44 barely matters.
+     `bestDiscard()`'s return also now exposes `ukeire` for the chosen tile.
+- [x] 3. Benchmarked the real implementation (not just the earlier prototype) against 200 dealt
+     hands: **~51ms per `bestDiscard()` call**, up from ~2ms — the accepted cost.
+- [x] 4. Recalibrated the puzzle difficulty thresholds a third time. Real ukeire differentiates
+     almost every non-symmetric candidate, so exact ties collapsed hard: a fresh ~2,000-hand
+     simulation (each sample now costs enough that 20,000 wasn't practical, but the histogram's
+     shape was unambiguous well before 2,000) found 53% of hands now have a *uniquely* best tile,
+     30% exactly two, only 17% three or more. `difficultyOf()` in `puzzles.js` is now `tieCount <= 1`
+     → hard, `=== 2` → medium, else easy.
+- [x] 5. Re-verified all 9 curated puzzles against the new engine: 8 of 9 drifted out of their tier
+     (only `medium-2` happened to still land correctly) and were replaced with freshly-found hands,
+     re-verified *with* their discard-history dressing included (which also feeds `visibleTiles`,
+     so it can shift a tie count too) — not just the bare hand.
+- [x] 6. Re-verified every existing test fixture touching `bestDiscard()`'s exact tie behaviour,
+     replacing three that no longer held:
+     - `engine.test.js`'s alternatives-truncation test needed a genuinely new fixture — its old
+       5-way tie broke asymmetrically under ukeire (discarding an isolated *honour* now correctly
+       beats discarding an isolated *suited* terminal, since a suited tile can still accept a
+       neighbour draw into a partial and an honour can only ever pair with itself — a real
+       precision gain, not a bug). Found a genuine 4-way tie by search instead.
+     - `puzzles.test.js`'s "every discard ties" degenerate-hand test needed a new fixture built a
+       different way: a uniformly random 14-tile hand essentially never produces a full tie any
+       more (a 100-second/1,000-sample search for one came back empty), so this one was found by
+       biasing generation toward *few, heavily-repeated* tile kinds instead — 3 complete triplets
+       plus a spare-tile quad, plain suited tiles only, tie exactly on shanten, value, *and* ukeire.
+     - `puzzles.test.js`'s "scattered, far-from-ready easy puzzle" test's old hand had drifted to a
+       2-way ("medium") tie; replaced with a freshly-found 4-way tie of similar shape.
+
+## Review
+
+### What was built
+
+Real ukeire, folded into the same single `blended` score the coach, decision log, and puzzles have
+shared since the value-aware rewrite — so this stays a ranking upgrade, not a second, separate
+opinion that could disagree with the first. The quality improvement is real and demonstrable: the
+alternatives-truncation fixture replacement above is a concrete example of `bestDiscard()` now
+correctly preferring an isolated honour over an isolated suited terminal specifically because of
+their different real acceptance profiles — a distinction the pre-ukeire engine had no way to draw.
+
+### Test plan
+
+- `cd frontend && npm test` — 91/91 pass, confirmed stable across 8 consecutive full-suite runs (a
+  smaller stress-test count than earlier rounds, since the suite now takes ~4.6s instead of ~0.5s —
+  ukeire's cost is real and shows up in the test run too, not just in production).
+- `cd frontend && npm run test:components` — 13/13 pass.
+- `cd frontend && npm run build` — clean.
+- Manual browser check: the live coach's "what should I discard?" still felt instant despite the
+  ~51ms cost (imperceptible for a single click), and correctly kept a seat-wind/dragon/pair-heavy
+  hand's value intact by discarding a genuinely isolated tile; the recalibrated Easy puzzle 1 (a
+  fresh hand, not the one from the last round) graded "Correct!" on its new recommended tile.
+
+### Known limits
+
+Same as the prior round's, unaffected by this change: the weights here (`VALUE_PER_SHANTEN`,
+`UKEIRE_WEIGHT`, the flush/honour credits) are still named guesses, not derived numbers;
+`estimateValue()` past tenpai still never models what an opponent might be collecting; discard
+advice still doesn't weigh danger. The one new limit worth naming: `bestDiscard()` is now
+meaningfully slower (~51ms), which is fine for a single synchronous coach call but would need a
+second look if it were ever called in a hot loop (e.g. bot decision-making at scale, or a future
+batch-analysis feature) rather than once per human click.
