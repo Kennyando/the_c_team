@@ -203,6 +203,12 @@ These are deliberate MVP boundaries, not defects:
    real accounts.
 8. **Discard advice optimises for speed to a win, not defence.** It does not weigh how dangerous a
    tile is to throw, because the bots do not play to win off discards yet.
+9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
+   entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
+   claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it
+   yet — no UI, no post-game review. It exists so a future teaching agent (explaining reasoning,
+   setting puzzles, reviewing a finished hand for mistakes) has real decision history to work from
+   instead of having to reconstruct it from the narrative log.
 
 ## Deferred to later phases
 

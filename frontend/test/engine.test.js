@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { buildWall, sortTiles, tileName } from '../src/game/tiles.js';
 import { decompose, isWinningHand, getClaimsFor, getSelfKongs, bestClaim } from '../src/game/melds.js';
 import { scoreHand, settle, seatWindOf, pointsForTai, DEFAULT_RULES } from '../src/game/scoring.js';
-import { newGame, drawTile, discardTile } from '../src/game/engine.js';
+import { newGame, drawTile, discardTile, resolveClaims } from '../src/game/engine.js';
 
 const rules = { ...DEFAULT_RULES };
 
@@ -213,6 +213,194 @@ test('drawing reduces the wall and hands the tile to the current player', () => 
   assert.ok(state.wall.length < wallBefore);
   assert.equal(state.players[1].hand.length, 14);
   assert.equal(state.phase, 'act');
+});
+
+// --- decision log (groundwork for a future teaching agent, docs/mvp-notes.md #9) --------------
+
+test('a new game starts with an empty decision log', () => {
+  assert.deepEqual(newGame(rules, 0).decisions, []);
+});
+
+test('a discard records an optimal decision when the human discards the recommended tile', () => {
+  const state = newGame(rules, 0);
+  // Same hand as advisor.test's "bestDiscard picks the dead tile": b9 touches nothing and is the
+  // only tile whose removal leaves the hand one away from winning.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
+
+  discardTile(state, 'b9');
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.type, 'discard');
+  assert.equal(entry.chosen, 'b9');
+  assert.equal(entry.recommended, 'b9');
+  assert.equal(entry.shantenAfterChosen, 0);
+  assert.equal(entry.optimal, true);
+});
+
+test('a discard records a mistake when a worse tile is thrown than the one recommended', () => {
+  const state = newGame(rules, 0);
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
+
+  discardTile(state, 'we'); // breaks the pair instead of shedding the dead tile
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.chosen, 'we');
+  assert.equal(entry.recommended, 'b9');
+  assert.equal(entry.shantenAfterChosen, 1);
+  assert.equal(entry.shantenAfterRecommended, 0);
+  assert.equal(entry.optimal, false);
+});
+
+test('a discard tied with the recommended tile is not read as a mistake', () => {
+  const state = newGame(rules, 0);
+  // Four complete sets plus two unpaired honours: discarding either is equally good, leaving four
+  // sets and one tile waiting to pair up.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'c9', 'we', 'ws'];
+
+  discardTile(state, 'ws');
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.recommended, 'we'); // the other tied tile, picked first
+  assert.equal(entry.chosen, 'ws');
+  assert.ok(entry.chosen !== entry.recommended, 'this case only tests something if the two differ');
+  assert.equal(entry.optimal, true);
+});
+
+test('a discard tied for best is not a mistake even when bestDiscard() truncates it out of alternatives', () => {
+  const state = newGame(rules, 0);
+  // 3 complete sets plus five lone honours: discarding any one of the five leaves the same
+  // shanten, but bestDiscard()'s `alternatives` list is capped at two entries (it's written for
+  // the coach's UI text, not as a completeness signal), so only two of the four ties show up
+  // there. `wn` and `dr` are the two left out.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'c7', 'c8', 'c9', 'we', 'ws', 'ww', 'wn', 'dr'];
+
+  discardTile(state, 'dr');
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.recommended, 'we');
+  assert.equal(entry.chosen, 'dr');
+  assert.equal(entry.shantenAfterChosen, entry.shantenAfterRecommended);
+  assert.equal(entry.optimal, true);
+});
+
+test('a bot discard is never added to the decision log', () => {
+  const state = newGame(rules, 0);
+  state.turn = 1;
+  state.phase = 'act';
+
+  discardTile(state, state.players[1].hand[0]);
+
+  assert.deepEqual(state.decisions, []);
+});
+
+test('passing on a discard that would have helped is recorded as a missed call', () => {
+  const state = newGame(rules, 0);
+  // 3 sets, a pair of wn, and two unrelated singles: two tiles from winning. Ponging the wn pair
+  // uses up the only pair, but the three completed sets plus the new pong leave just one single
+  // tile short of a fourth set with no pair yet needed — one tile from winning, an improvement.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'wn', 'wn', 'we', 'ws'];
+  state.players[1].hand = ['wn', ...Array(12).fill('d9')];
+  state.players[2].hand = Array(13).fill('ws');
+  state.players[3].hand = Array(13).fill('ww');
+  state.turn = 1;
+  state.phase = 'act';
+
+  discardTile(state, 'wn');
+  assert.deepEqual(state.claimOptions, [{ type: 'pong', tiles: ['wn', 'wn', 'wn'], seat: 0 }]);
+
+  resolveClaims(state, null); // the human passes
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.type, 'claim');
+  assert.equal(entry.chosen, null);
+  assert.deepEqual(entry.recommended, { type: 'pong', tiles: ['wn', 'wn', 'wn'], seat: 0 });
+  assert.equal(entry.optimal, false);
+});
+
+test('taking the one call that helps is recorded as optimal', () => {
+  const state = newGame(rules, 0);
+  state.players[0].hand = ['d1', 'd2', 'd3', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'wn', 'wn', 'we', 'ws'];
+  state.players[1].hand = ['wn', ...Array(12).fill('d9')];
+  state.players[2].hand = Array(13).fill('ws');
+  state.players[3].hand = Array(13).fill('ww');
+  state.turn = 1;
+  state.phase = 'act';
+
+  discardTile(state, 'wn');
+  const [claim] = state.claimOptions;
+
+  resolveClaims(state, claim);
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.chosen, claim);
+  assert.equal(entry.recommended, claim);
+  assert.equal(entry.optimal, true);
+});
+
+test('taking a call that does not help is recorded as a mistake', () => {
+  const state = newGame(rules, 0);
+  // Same "wasteful" hand as advisor.test's claimAdvice case: already one away from winning, and
+  // ponging the dragon pair costs the eyes for no gain.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'dg', 'dg'];
+  state.players[1].hand = ['dg', ...Array(12).fill('wn')];
+  state.players[2].hand = Array(13).fill('ws');
+  state.players[3].hand = Array(13).fill('ww');
+  state.turn = 1;
+  state.phase = 'act';
+
+  discardTile(state, 'dg');
+  const [claim] = state.claimOptions;
+
+  resolveClaims(state, claim);
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.chosen, claim);
+  assert.equal(entry.recommended, null);
+  assert.equal(entry.optimal, false);
+});
+
+test('taking the second of two beneficial claims is not a false-positive mistake', () => {
+  const state = newGame(rules, 0);
+  // Three legal chows on the same discard: d3-d4-d5 and d5-d6-d7 both advance the hand
+  // (verdict 'yes'); d4-d5-d6 does not. Regression for recording `optimal: false` on the second
+  // 'yes' option just because the first one happened to come first in state.claimOptions.
+  state.players[0].hand = ['b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'd3', 'd4', 'd6', 'd7', 'we', 'we', 'wn'];
+  state.players[3].hand = ['d5', ...Array(12).fill('ww')]; // seat 3 is seat 0's left neighbour
+  state.players[1].hand = Array(13).fill('ws');
+  state.players[2].hand = Array(13).fill('dr');
+  state.turn = 3;
+  state.phase = 'act';
+
+  discardTile(state, 'd5');
+  assert.deepEqual(
+    state.claimOptions.map((c) => c.tiles.join('-')),
+    ['d3-d4-d5', 'd4-d5-d6', 'd5-d6-d7'],
+  );
+  const second = state.claimOptions[2]; // d5-d6-d7 — the second beneficial option, not the first
+
+  resolveClaims(state, second);
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.chosen, second);
+  assert.notEqual(entry.recommended, second, 'this only tests something if recommended picked the other one');
+  assert.equal(entry.optimal, true);
+});
+
+test('no decision is recorded when the human has no legal claim to make', () => {
+  const state = newGame(rules, 0);
+  state.players[0].hand = Array(13).fill('ws'); // nothing that could ever claim a wn discard
+  state.players[1].hand = ['wn', ...Array(12).fill('c1')];
+  state.players[2].hand = Array(13).fill('b1');
+  state.players[3].hand = Array(13).fill('b2');
+  state.turn = 1;
+  state.phase = 'act';
+
+  discardTile(state, 'wn');
+  assert.deepEqual(state.claimOptions, []);
+
+  resolveClaims(state, null);
+
+  assert.deepEqual(state.decisions, []);
 });
 
 test('tiles sort and read out in a stable, speakable way', () => {

@@ -6,6 +6,7 @@
 import { buildWall, isBonus, sortTiles, tileName } from './tiles.js';
 import { getClaimsFor, getSelfKongs, isWinningHand, bestClaim } from './melds.js';
 import { scoreHand, settle, seatWindOf } from './scoring.js';
+import { shanten, bestDiscard, claimAdvice } from './advisor.js';
 
 export const SEAT_NAMES = ['You', 'Ah Ma', 'Ah Gong', 'Ah Huat'];
 
@@ -48,6 +49,9 @@ export function newGame(rules, dealer = 0, carriedPoints = [0, 0, 0, 0]) {
     botClaims: [],
     result: null,
     log: [],
+    // Structured record of the human's discard/claim decisions, for a future post-game review —
+    // separate from `log` above, which is narrative text for display, not data to compare against.
+    decisions: [],
   };
 
   // Bonus tiles held after the deal are set aside and replaced, dealer first.
@@ -115,11 +119,42 @@ function drawReplacement(state) {
   return state;
 }
 
+/**
+ * A structured record of the human's discard, for a future post-game review — separate from the
+ * narrative `log`, which is display text, not data to compare against. Reuses `advisor.js`'s own
+ * `bestDiscard`, the exact function the live coach uses to judge a position, so this is by
+ * construction the same recommendation the coach would give at the same moment.
+ */
+function recordDiscardDecision(player, chosen) {
+  const rec = bestDiscard(player);
+  const rest = [...player.hand];
+  rest.splice(rest.indexOf(chosen), 1);
+  const shantenAfterChosen = shanten(rest, player.melds);
+
+  return {
+    type: 'discard',
+    hand: [...player.hand],
+    melds: player.melds.map((m) => ({ ...m })),
+    chosen,
+    recommended: rec.tile,
+    shantenBefore: shanten(player.hand, player.melds),
+    shantenAfterChosen,
+    shantenAfterRecommended: rec.shantenAfter,
+    reasons: rec.reasons,
+    // Compare the resulting shanten directly, not membership in `alternatives` — that list is
+    // capped at two entries for the coach's UI text ("X is just as good"), so a four-way tie for
+    // best would wrongly flag the fourth tile as a mistake if used as the correctness signal.
+    optimal: shantenAfterChosen === rec.shantenAfter,
+  };
+}
+
 /** Discard, then open the claim window for the other three players. */
 export function discardTile(state, tile) {
   const p = state.players[state.turn];
   const i = p.hand.indexOf(tile);
   if (i === -1) return state;
+
+  if (p.isHuman) state.decisions.push(recordDiscardDecision(p, tile));
 
   p.hand.splice(i, 1);
   state.discards.push({ tile, by: p.seat });
@@ -152,8 +187,41 @@ export function passClaims(state) {
   return state;
 }
 
+/**
+ * A structured record of the human's call/pass decision on a contested discard, alongside
+ * `recordDiscardDecision` above. Reuses `advisor.js`'s `claimAdvice` per option on offer, so the
+ * logged `recommended` call is exactly what the live coach would say about the same discard.
+ */
+function recordClaimDecision(state, humanChoice) {
+  const human = state.players[0];
+  const claimedTile = state.pending.tile;
+  const options = state.claimOptions.map((claim) => ({ claim, ...claimAdvice(human, claim, claimedTile) }));
+  // `claim` on each option (and `chosen`, when set) all come from the same `state.claimOptions`
+  // array elements, so reference equality is enough to tell which option the human took.
+  const yesClaims = options.filter((o) => o.verdict === 'yes').map((o) => o.claim);
+  const chosen = humanChoice || null;
+
+  return {
+    type: 'claim',
+    pendingTile: claimedTile,
+    discardedBy: state.pending.by,
+    options,
+    chosen,
+    // A single canonical answer for display, e.g. "you could have called X" — but see `optimal`
+    // below: claimAdvice() doesn't rank between two calls that both help, so when more than one
+    // option is legitimately good, this is only *a* correct answer, not the only one.
+    recommended: yesClaims[0] ?? null,
+    // Any positively-advised option is an acceptable outcome, not just the (arbitrary) first one —
+    // otherwise a hand with two good chow configurations would flag choosing the second as a
+    // mistake purely because of array order.
+    optimal: chosen === null ? yesClaims.length === 0 : yesClaims.includes(chosen),
+  };
+}
+
 /** Award a contested discard to the highest-priority claim. */
 export function resolveClaims(state, humanChoice) {
+  if (state.claimOptions.length > 0) state.decisions.push(recordClaimDecision(state, humanChoice));
+
   const candidates = [...(state.botClaims || [])];
   if (humanChoice) candidates.push({ ...humanChoice, seat: 0 });
   const winner = bestClaim(candidates, state.pending.by);

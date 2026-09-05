@@ -680,3 +680,306 @@ expected result.
 2. **The Budget alert is opt-in.** A deployment that never sets `coachBudgetAlertEmail` still has
    no dollar-amount cost alert — only the pre-existing rate/concurrency caps. The synth-time
    warning is the only nudge toward setting it.
+
+# Planned: structured decision log (step 1 toward a teaching agent)
+
+Goal (from the user): a future agent that teaches the player with reasoning, sets puzzles, and
+reviews mistakes after the hand. All three need to know, after the fact, what decision the player
+actually faced and what the engine would have done instead — and nothing in `engine.js` records
+that today. `state.log` is a narrative string log ("You discarded d5"), not structured data a
+review pass could compare against. This step only adds that data; no puzzle generation and no
+review UI/agent yet — those are separate follow-ups once this exists to build on.
+
+**Scope decision: only the human's (seat 0) decisions are logged.** The bots use a fixed heuristic
+(`bots.js`) that never varies, so there's nothing to "teach" there, and logging every bot discard
+would triple the log's size for zero benefit to this feature.
+
+**Scope decision: lives in `engine.js`, not a new module.** `engine.js` already owns every state
+mutation and already appends to `state.log` from inside `discardTile`/`resolveClaims`/etc.; adding
+a second, structured append in the same places is the smallest change. It's a new import of
+`advisor.js` into `engine.js` (currently one-directional the other way: nothing in `advisor.js`
+imports `engine.js`, so no cycle), for `shanten`, `bestDiscard`, and `claimAdvice` — the exact
+functions the coach already uses to judge a position, so "the engine's recommendation" in the log
+is by construction the same recommendation the coach would give live.
+
+## Todo
+
+- [x] 1. `frontend/src/game/engine.js` — add `decisions: []` to the state object built in `newGame`
+- [x] 2. `frontend/src/game/engine.js` — import `shanten`, `bestDiscard`, `claimAdvice` from
+     `./advisor.js`
+- [x] 3. `frontend/src/game/engine.js` — in `discardTile(state, tile)`, before the tile is spliced
+     out of `p.hand`: if `p.isHuman`, compute `bestDiscard(p)` and `shanten` on the hand with the
+     chosen tile removed, and push a decision entry (shape below) onto `state.decisions`
+- [x] 4. `frontend/src/game/engine.js` — in `resolveClaims(state, humanChoice)`, before
+     `state.claimOptions` is cleared: if `state.claimOptions.length > 0` (the human had a real
+     choice — bots can't claim their own tiles, so a non-empty list always means it was the
+     human's opportunity), run `claimAdvice` over each option and push a decision entry
+- [x] 5. `frontend/test/engine.test.js` — unit tests (list below)
+- [x] 6. `docs/mvp-notes.md` — one paragraph noting the new `state.decisions` log and that it's
+     currently unconsumed (no UI or review pass reads it yet — this step is groundwork only)
+
+## Entry shapes
+
+Discard decision:
+```js
+{
+  type: 'discard',
+  hand: [...],              // player's hand at the moment of decision (includes the chosen tile)
+  melds: [...],              // player's exposed melds at that moment, for context
+  chosen: tile,
+  recommended: tile,         // bestDiscard(player).tile
+  shantenBefore: number,     // shanten(hand, melds) before discarding
+  shantenAfterChosen: number,
+  shantenAfterRecommended: number,   // === bestDiscard(player).shantenAfter
+  reasons: [...],            // bestDiscard(player).reasons — why the recommended tile was picked
+  optimal: boolean,          // chosen === recommended, or chosen is one of bestDiscard's `alternatives`
+}
+```
+
+Claim decision:
+```js
+{
+  type: 'claim',
+  pendingTile: tile,          // the discard on offer
+  discardedBy: seat,
+  options: [{ claim, verdict, lines }, ...],   // claimAdvice(player, claim, pendingTile) per option
+  chosen: claim | null,       // what the human actually took, or null if they passed
+  recommended: claim | null,  // the first option with verdict 'yes', or null if passing was correct
+  optimal: boolean,           // chosen and recommended are both null, or chosen matches recommended
+}
+```
+
+**Known simplification, noted up front rather than discovered later:** if two different claim
+options both have verdict `'yes'` (e.g., both a chow and a pong would advance the hand), only the
+first is recorded as `recommended`. `claimAdvice` doesn't rank between two helpful calls today —
+teaching "which of two good calls is better" is out of scope for this step.
+
+## Planned unit tests (`frontend/test/engine.test.js`)
+
+- `discardTile` records a decision entry for the human's discard, with `optimal: true`, when the
+  human discards the tile `bestDiscard` recommends.
+- `discardTile` records `optimal: false` and the correct `shantenAfterChosen` when the human
+  discards a tile that leaves them further from winning than the recommended one.
+- `discardTile` records `optimal: true` for a tile in `bestDiscard`'s `alternatives` list, not just
+  for an exact match on `recommended` — ties should not read as mistakes.
+- `discardTile` does **not** push anything onto `state.decisions` for a bot's discard (turn on a
+  non-human seat).
+- `resolveClaims` records a `'claim'` decision with `chosen: null` and the correct `recommended`
+  when the human had a legal, hand-improving call available and passed (`humanChoice` is
+  `null`/`undefined`).
+- `resolveClaims` records `optimal: true` when the human takes the one call that helps.
+- `resolveClaims` records `optimal: false` when the human takes a call `claimAdvice` says doesn't
+  help (verdict `'no'`).
+- `resolveClaims` pushes **no** decision entry when `state.claimOptions` was empty (nothing for the
+  human to decide on that discard).
+- A full `newGame()` starts with `state.decisions` as an empty array.
+
+## Review
+
+### What was built
+
+`frontend/src/game/engine.js` now imports `shanten`, `bestDiscard` and `claimAdvice` from
+`./advisor.js` (a new, one-directional dependency — `advisor.js` already had none on `engine.js`,
+so no cycle) and uses them to append a structured entry to a new `state.decisions` array:
+
+- **`discardTile`** records one whenever the seat about to discard `isHuman`, computed from the
+  hand *before* the chosen tile is spliced out, via a new `recordDiscardDecision(player, chosen)`
+  helper. `optimal` is true for an exact match on `bestDiscard`'s pick **or** one of its tied
+  `alternatives` — a tie is not a mistake.
+- **`resolveClaims`** records one whenever `state.claimOptions.length > 0` — the only case where
+  the human genuinely had a call to make, since a player can never claim their own discard — via a
+  new `recordClaimDecision(state, humanChoice)` helper. It runs `claimAdvice` over every option on
+  offer and takes the first `verdict: 'yes'` one as `recommended`; passing (`humanChoice` is
+  `null`/`undefined`) is only `optimal` when no option was worth taking either. `chosen` and
+  `recommended` are compared by reference, not deep equality — both come from the same
+  `state.claimOptions` array elements the UI already passes straight through unmodified
+  (confirmed by reading `CallBar.jsx`: it maps over `actions` without cloning), so `===` is exact
+  and doesn't need a bespoke claim-comparison function.
+
+Both entry points are the single funnel `App.jsx` already goes through for every human discard and
+claim decision (confirmed by reading it before writing any code — `passClaims` is only ever called
+internally by `resolveClaims` itself, never directly by the UI), so no other call site needed
+touching.
+
+`docs/mvp-notes.md` gets a new known-simplification #9 marking `state.decisions` as groundwork:
+nothing reads it yet.
+
+### Test plan
+
+- `cd frontend && npm test` — 68/68 pass (the previous 59, plus 9 new decision-log tests). Two of
+  the new claim-decision tests needed a hand redesigned mid-implementation: my first attempt at a
+  "this call helps" hand accidentally also satisfied `isWinningHand`, so `getClaimsFor` returned a
+  `win` option alongside the `pong` and the assertions on a single clean option failed. Verified the
+  final hands against `advisor.js`'s actual `shanten`/`claimAdvice`/`getClaimsFor` output directly
+  (via a throwaway `node -e` script) rather than by hand-calculating shanten, after an initial
+  by-hand calculation also turned out wrong.
+- `cd frontend && npm run build` — exit 0.
+- Manual smoke test: added `.claude/launch.json` (frontend dev server, `npm --prefix
+  .../frontend run dev`) since none existed, started it, and drove the actual UI in the browser —
+  dealt a hand, discarded a tile through the confirm dialog, and let bot turns advance. No console
+  errors, wall count and turn order updated correctly. This exercises `discardTile` and the
+  claim-window path through the real UI, not just the unit tests.
+
+### Known limits
+
+1. **Nothing reads `state.decisions` yet.** This step is groundwork only — no puzzle generation, no
+   post-game review pass or UI, as scoped from the start.
+2. **The two-good-calls simplification from the plan stands**: if two different claim options both
+   have verdict `'yes'`, only the first is `recommended`. Not exercised by a test since
+   `claimAdvice`/`getClaimsFor` don't currently produce that situation in a way this session found
+   worth constructing a test hand for; worth a test if a future review pass depends on it.
+3. **Not tested against a played-out full hand.** Every test constructs a single decision in
+   isolation (a hand assigned directly to `state.players[0].hand`); nothing exercises `decisions`
+   accumulating correctly across many discards/claims in one real hand from `newGame()` to
+   `finishHand()`.
+
+# PR #5 review fixes, and an assessment of the "Singapore rules" shanten request
+
+Two things came in together: two concrete review comments on PR #5's `optimal` logic (known limit
+#2 above, plus a second bug the reviewer caught), and a request to "adapt the shanten calculator
+for Singapore rules" against an attached SPGG competition rulebook (`mjrandrjan2024.pdf`). The two
+review fixes are small and unambiguous. The rulebook request needs a scope decision first — see
+below — so it isn't in the todo list yet.
+
+## Part A — the two review fixes (both confirmed reproducible, fixing now)
+
+**A1. Claim `optimal` only credits the first `'yes'` option.** Reproduced: a hand with three legal
+chow configurations on one discard, where the two *outer* ones both improve the hand
+(`verdict: 'yes'`) and the middle one doesn't —
+```
+hand:  b1 b2 b3 c1 c2 c3 d3 d4 d6 d7 we we wn   (seat 0)
+discard: d5, from seat 3 (the left-hand neighbour, so chow applies)
+claims:  chow d3-d4-d5 (yes) / chow d4-d5-d6 (no) / chow d5-d6-d7 (yes)
+```
+Today, choosing the `d5-d6-d7` chow is recorded as `optimal: false`, purely because `d3-d4-d5`
+happened to come first in `state.claimOptions` — a false-positive "mistake" exactly as described.
+Fix, per the reviewer's first suggested option (simpler than ranking the two `'yes'` options
+against each other, and `claimAdvice` has no ranking between two helpful calls to draw on anyway):
+treat **any** `'yes'`-verdict option as an acceptable outcome. `recommended` stays the first
+`'yes'` option (still useful as *a* concrete answer for display), but `optimal` no longer requires
+matching it exactly.
+
+**A2. Discard `optimal` uses `bestDiscard()`'s truncated `alternatives` list.** Confirmed:
+`bestDiscard()` caps `alternatives` at two tiles (`.slice(0, 2)`) because that list was written for
+the coach's UI text ("X is just as good"), never meant as a completeness signal. A hand with four
+tiles tied for the best resulting shanten would record the fourth as a mistake even though it
+provably isn't one. Fix, exactly as suggested: compare the underlying numbers instead of list
+membership — `shantenAfterChosen === rec.shantenAfter` (both already computed in
+`recordDiscardDecision`) — which is correct regardless of how many tiles tie.
+
+### Todo
+
+- [x] 1. `frontend/src/game/engine.js` — `recordDiscardDecision`: change `optimal` to
+     `shantenAfterChosen === rec.shantenAfter`; drop the now-unused reliance on `rec.alternatives`
+     for correctness (the field itself still comes back from `bestDiscard` unchanged and is fine
+     to keep recording, just not to gate `optimal` on)
+- [x] 2. `frontend/src/game/engine.js` — `recordClaimDecision`: compute the full list of
+     `'yes'`-verdict claims; keep `recommended` as the first one, but set
+     `optimal: chosen === null ? yesClaims.length === 0 : yesClaims.includes(chosen)`
+- [x] 3. `frontend/test/engine.test.js` — new regression test: the three-chow-option hand above,
+     asserting taking the *second* `'yes'` option (`d5-d6-d7`) is `optimal: true`, not just the
+     first
+- [x] 4. `frontend/test/engine.test.js` — new regression test: a discard with (at least) three
+     tiles tied for the best resulting shanten, asserting the tile *not* in `alternatives` (because
+     of the `.slice(0, 2)` cap) is still recorded `optimal: true`
+- [x] 5. Re-run `cd frontend && npm test` and `npm run build`
+
+## Part B — the "Singapore rules" shanten request: assessment before scoping any work
+
+I read `mjrandrjan2024.pdf` (SPGG's competition rulebook) and compared it against
+`frontend/src/game/advisor.js`'s `shanten()` and `melds.js`'s `isWinningHand()`/`decompose()`
+before touching anything, since the premise ("the shanten calculator isn't adapted for Singapore
+rules") is only half right and I don't want to build the wrong fix.
+
+**What the rulebook actually confirms:** every scored hand type it lists except one — toitoi/all-
+triplets ("Kam Kam Hu"), all-honours, 1-and-9-only, four kongs, half/full flush — is still
+structurally *four sets plus a pair*. `shanten()`'s formula (2 points per complete set, 1 per
+partial, budget of 8) already covers all of them; a triplet is as valid a "set" as a run to that
+function. **Seven pairs is not in this rulebook at all** — SPGG's "Kam Kam Hu" is all-triplets, a
+different hand, still 4-sets-shaped. So the specific claim "the shanten calculator isn't adapted
+for Singapore rules" doesn't hold for the standard hand shape; that part of `shanten()` needs no
+change.
+
+**What genuinely is missing:** **Thirteen Wonders** (rules 18 and 24j — a hand of all 13 distinct
+terminal/honour tiles plus one duplicate). That shape isn't 4-sets-plus-a-pair at all, and
+`shanten()`/`isWinningHand()` have no representation of it whatsoever — a player one tile from
+Thirteen Wonders gets exactly the same (bad) shanten number as someone with a scattered, useless
+hand. This is real and worth fixing.
+
+**Why I'm not just patching `shanten()` and calling it done:** `docs/mvp-notes.md`'s known
+simplification #2 currently says plainly "no special hands... not implemented," covering
+`isWinningHand()` (can't detect the win), `scoreHand()` (can't score it), and `shanten()`
+(can't measure distance to it) together, as one deliberate boundary. Adding Thirteen-Wonders
+*shanten* alone, without also teaching `isWinningHand()` to recognise a completed one, means the
+coach could tell a player "you're one tile away" and then the engine refuses to let them declare
+the win when they draw it — a worse, actively misleading experience than the current honest "not
+implemented." Properly closing this gap means three coupled pieces, not one:
+
+1. `melds.js` — an `isThirteenWonders(concealed, melds)` check (melds must be empty; concealed win
+   only, per how this hand is always played) alongside `isWinningHand`
+2. `advisor.js` — a Thirteen-Wonders distance function, and `shanten()` (or its caller) taking the
+   minimum of the standard distance and this one
+3. `scoring.js` — at minimum, a fixed limit-hand score for it (rule 24 prices every special hand at
+   a flat maximum), so a completed one settles correctly instead of falling through to whatever
+   `scoreHand()` currently does with a hand shape it's never seen
+
+None of this is large individually, but it's a real feature addition against a documented,
+deliberate MVP boundary — not a bug fix — so I'd rather confirm scope before writing code than
+guess. Seven pairs stays out regardless, since it isn't part of this ruleset.
+
+### Decision: hold off
+
+User's call: leave `shanten()`/`isWinningHand()` exactly as they are for now. `docs/mvp-notes.md`
+known simplification #2 already documents this honestly; no code changes for Part B in this round.
+Revisit if Thirteen Wonders comes up again. Only Part A (the two review-comment fixes) proceeds.
+
+## Review
+
+### What was fixed
+
+Reproduced both review comments against real code before changing anything (via a throwaway
+`node -e` script exercising `advisor.js`/`melds.js` directly), to confirm the exact conditions that
+trigger each false-positive rather than trusting the description alone.
+
+**A1 (claim `optimal`).** `recordClaimDecision` now filters `options` down to every `'yes'`-verdict
+claim (`yesClaims`) instead of just taking the first one. `recommended` is unchanged (still the
+first `'yes'` option, kept as a single concrete display answer since `claimAdvice()` has no way to
+rank two genuinely good calls against each other). `optimal` is now `yesClaims.includes(chosen)`
+when the human took a call, or `yesClaims.length === 0` when they passed — so taking *any*
+beneficial option reads as optimal, not just whichever happened to be first in
+`state.claimOptions`.
+
+**A2 (discard `optimal`).** `recordDiscardDecision` now compares `shantenAfterChosen ===
+rec.shantenAfter` directly — both numbers it was already computing — instead of checking whether
+`chosen` appears in `bestDiscard()`'s `alternatives` array. `alternatives` itself is untouched
+(still capped at two entries, still fine for the coach's explanatory text); it's just no longer
+used as a correctness signal for the decision log.
+
+### Test plan
+
+- `cd frontend && npm test` — 70/70 pass (68 previous + 2 new regression tests).
+  - New: `'taking the second of two beneficial claims is not a false-positive mistake'` — a hand
+    with three legal chows on one discard (`d3-d4-d5` yes / `d4-d5-d6` no / `d5-d6-d7` yes),
+    asserting the *second* `'yes'` option is `optimal: true`. This fails against the old code
+    (confirmed by reading the pre-fix logic against this exact hand before writing the fix).
+  - New: `'a discard tied for best is not a mistake even when bestDiscard() truncates it out of
+    alternatives'` — a hand with five lone-honour tiles all tied for the same resulting shanten,
+    discarding one of the two `bestDiscard()` truncates out of its two-entry `alternatives` list.
+    Also fails against the old code.
+  - All prior tests, including the two this PR previously flagged in `Known limits` as
+    unregression-tested, pass unchanged.
+- `cd frontend && npm run build` — exit 0.
+- No browser smoke test this round: nothing UI-observable changed (`state.decisions` is still
+  unconsumed by any component; only its internal `optimal` computation changed), and the
+  surrounding game loop was already verified live in the previous round on this same
+  `discardTile`/`resolveClaims` code path.
+
+### On the "Singapore rules" shanten request
+
+Assessed against the attached `mjrandrjan2024.pdf` (SPGG competition rulebook) and the actual
+`shanten()`/`isWinningHand()` code — see "Part B" above for the full reasoning. Summary: the
+standard-hand shanten math is not actually Singapore-specific and needs no change; the one real gap
+is Thirteen Wonders, explicitly named in the rulebook (rules 18, 24j) but entirely unrepresented in
+the current code. Seven pairs is not part of this ruleset and was correctly not requested for
+inclusion. Per the user's decision, no code changes were made for this — `docs/mvp-notes.md` known
+simplification #2 continues to document it as a deliberate, honest boundary rather than a defect.
