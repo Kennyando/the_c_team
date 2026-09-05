@@ -208,7 +208,14 @@ export class KakiMahjongStack extends cdk.Stack {
     // defaults for a hackathon demo — override with `-c coachApiConcurrency=`,
     // `-c coachApiRateLimit=`, `-c coachApiBurstLimit=` if real usage needs
     // more headroom.
+    //
+    // `-c coachApiConcurrency=0` omits the reserved-concurrency cap entirely:
+    // a restricted account (e.g. a workshop sandbox) can have a Lambda
+    // concurrency limit low enough that reserving *any* leaves fewer than the
+    // 10 unreserved executions AWS requires account-wide, which fails the
+    // deploy. The API Gateway throttle and the Budget still bound cost.
     const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
+    const reservedConcurrentExecutions = coachApiConcurrency > 0 ? coachApiConcurrency : undefined;
 
     const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -218,7 +225,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "classifyIntent.ts"),
       environment: { BEDROCK_MODEL_ID: bedrockModelId },
-      reservedConcurrentExecutions: coachApiConcurrency,
+      reservedConcurrentExecutions,
     });
 
     classifyIntentFn.addToRolePolicy(
@@ -231,10 +238,14 @@ export class KakiMahjongStack extends cdk.Stack {
     // The post-hand review agent (@kaki/agents, bundled from ../../agents). Same posture as
     // classify-intent: stateless HTTP, one Bedrock call whose output is strictly validated, any
     // failure degrading to a deterministic model-free review. Shares this route's rate caps and
-    // the Budget below. `agentModelId` defaults to the same model as classify-intent; override
-    // with `-c agentModelId=us.amazon.nova-lite-v1:0` (or a Claude Haiku id) if review prose
-    // needs to be richer once it's been tested — match the deploy region's profile prefix.
-    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || bedrockModelId;
+    // the Budget below.
+    //
+    // Defaults to Nova *Lite*, not Micro: a model-comparison run (Micro / Lite / Llama 3.1 8B)
+    // found Micro contradicts itself and Llama 8B inverts the graded facts, while Lite stays
+    // coherent. Lite is still cents-per-thousand-reviews. Classify-intent stays on Micro
+    // (`bedrockModelId`) — a one-token classification doesn't need the extra capability. Override
+    // with `-c agentModelId=...`, matching the deploy region's profile prefix (`us.`/`eu.`/`apac.`).
+    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || "us.amazon.nova-lite-v1:0";
     if (!cdk.Token.isUnresolved(region)) {
       assertModelRegionMatch(region, agentModelId, "agentModelId");
     }
@@ -247,7 +258,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "reviewHand.ts"),
       environment: { AGENT_MODEL_ID: agentModelId },
-      reservedConcurrentExecutions: coachApiConcurrency,
+      reservedConcurrentExecutions,
     });
 
     reviewHandFn.addToRolePolicy(

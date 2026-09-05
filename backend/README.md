@@ -106,11 +106,13 @@ answer is used instead; the coach never breaks, and works with zero backend
 deployed at all if `frontend/.env.template`'s `VITE_CLASSIFY_INTENT_URL` is
 left blank.
 
-Swap the model with `npx cdk deploy -c bedrockModelId=<id>` if your account's
-model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
-if you deploy to eu-*, `apac.…` for ap-*), a bigger Nova (`us.amazon.nova-lite-v1:0`),
-or a single-region model such as an Anthropic Claude Haiku id. `-c agentModelId=`
-does the same for the post-hand review route independently. The `bedrock:InvokeModel`
+Swap the coach classifier model with `npx cdk deploy -c bedrockModelId=<id>` if your
+account's model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
+if you deploy to eu-*, `apac.…` for ap-*) or a single-region model such as an
+Anthropic Claude Haiku id. The **post-hand review route** is independent: it defaults
+to `us.amazon.nova-lite-v1:0` (Micro contradicts itself on the longer review output,
+an 8B model inverts the facts — Lite stays coherent), override with `-c agentModelId=`.
+The `bedrock:InvokeModel`
 IAM policy adapts automatically (`lib/bedrockResources.ts`): a profile id gets the
 profile ARN plus the region-wildcarded base-model ARN, a bare id gets just the one
 foundation-model ARN. A cross-region profile whose `us.` / `eu.` / `apac.` prefix
@@ -150,9 +152,14 @@ itself, not in an auth check:
 - **API Gateway throttling** on `CoachApi`'s stage — `rateLimit: 2` req/s,
   `burstLimit: 5` by default. Override with `-c coachApiRateLimit=` /
   `-c coachApiBurstLimit=` if a real demo needs more headroom.
-- **Reserved concurrency of 2** on `ClassifyIntentFn` — a hard ceiling on how
-  many invocations can run at once, independent of the throttle above.
-  Override with `-c coachApiConcurrency=`.
+- **Reserved concurrency of 2** on `ClassifyIntentFn` and `ReviewHandFn` — a
+  hard ceiling on how many invocations can run at once, independent of the
+  throttle above. Override with `-c coachApiConcurrency=`. Set
+  `-c coachApiConcurrency=0` to drop it entirely: a restricted account (e.g. a
+  workshop sandbox) can have a Lambda concurrency limit low enough that
+  reserving *any* leaves fewer than the 10 unreserved executions AWS requires
+  account-wide, and `cdk deploy` fails with `decreases account's
+  UnreservedConcurrentExecution below its minimum value of [10]`.
 
 Both are deliberately conservative for a hackathon project on a small
 Bedrock budget, and both bound the *rate* of Bedrock calls — neither is a
@@ -195,9 +202,10 @@ npx cdk synth
 
 # Deploys to us-east-1 unless CDK_DEFAULT_REGION is set (see bin/app.ts).
 # us-east-1 is where the hackathon sandbox's org policy permits Bedrock and
-# where the default model profile (us.amazon.nova-micro-v1:0) resolves. If
-# you change the region, also pass -c bedrockModelId / -c agentModelId with
-# that region's inference-profile prefix (eu. / apac.) or a single-region model.
+# where the default model profiles (us.amazon.nova-micro-v1:0 for the coach
+# classifier, us.amazon.nova-lite-v1:0 for the review agent) resolve. If you
+# change the region, also pass -c bedrockModelId / -c agentModelId with that
+# region's inference-profile prefix (eu. / apac.) or a single-region model.
 npx cdk deploy
 ```
 
