@@ -114,14 +114,21 @@ An earlier version of this route accepted the intent list — including a
 free-text "hint" per intent — from the request body, so it could be kept in
 sync with whatever `coach.js` currently supports. That meant an untrusted
 caller could put arbitrary text into the Bedrock prompt via the hint field.
-`shared/intents.json` fixes that: it's the one file both sides read, so
-there's still a single source of truth, but the backend now owns it —
+`shared/intents.json` fixes that: it's the backend's own catalogue —
 `classifyIntent.ts` imports it at build time (bundled directly into the
 Lambda by esbuild; `tsconfig.json`'s `resolveJsonModule` makes the same
-import type-check), and the request carries nothing but the question.
-`frontend/test/coach.test.js` has a test that fails if `coach.js`'s own
-intent ids and this file's ever drift apart, so the two can't silently
-disagree.
+import type-check) and builds its prompt from nothing else — and the
+request now carries nothing but the question.
+
+This is *not* a single file both packages read at runtime: `coach.js` keeps
+its own `INTENTS` array in the frontend package, because it needs more than
+an id and a hint per intent — an answer function and the regex patterns
+that route to it, neither of which belongs in a JSON file the backend also
+bundles. What ties the two together is a test, not a shared import:
+`frontend/test/coach.test.js` asserts `coach.js`'s intent ids and
+`shared/intents.json`'s ids are exactly equal, so if someone adds, removes
+or renames an intent on one side and forgets the other, `npm test` fails
+instead of the drift silently degrading the coach's model-assisted answers.
 
 ### This endpoint takes no credentials — throttling is the actual defense
 
@@ -139,12 +146,23 @@ itself, not in an auth check:
   Override with `-c coachApiConcurrency=`.
 
 Both are deliberately conservative for a hackathon project on a small
-Bedrock budget. If this ever needs real per-user identity (rate limits per
-player rather than per deployment, for instance), the `UserPool` this stack
-already provisions is the natural next step — a JWT authorizer on this
-route — but that also means building a sign-in flow into the frontend,
-which is out of scope for what is currently a single-player, no-accounts
-MVP (see `docs/mvp-notes.md`'s known simplifications).
+Bedrock budget, and both bound the *rate* of Bedrock calls — neither is a
+ceiling on total spend. A caller sitting at the throttle limit continuously,
+forever, still accumulates unbounded cost over time; it just accrues slowly.
+If this ever needs real per-user identity (rate limits per player rather
+than per deployment, for instance), the `UserPool` this stack already
+provisions is the natural next step — a JWT authorizer on this route — but
+that also means building a sign-in flow into the frontend, which is out of
+scope for what is currently a single-player, no-accounts MVP (see
+`docs/mvp-notes.md`'s known simplifications).
+
+- **An AWS Budget** is the actual dollar-amount guardrail: `-c
+  coachBudgetAlertEmail=you@example.com` provisions a monthly Budget scoped
+  to Bedrock cost that emails that address once spend crosses 80% of `-c
+  coachBudgetLimitUsd=` (default `20`). Unlike the throttle/concurrency
+  above, this is unset by default — `cdk synth`/`deploy` prints a warning if
+  it's missing, since this endpoint takes no credentials (see below) and is
+  reachable by anyone who has its URL.
 
 ## Prerequisites
 

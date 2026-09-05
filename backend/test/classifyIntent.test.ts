@@ -158,22 +158,23 @@ test("a response with no content block at all becomes fallback", async (t) => {
   assert.deepEqual(JSON.parse(res.body), { intent: "fallback" });
 });
 
-// --- Bedrock failures: every one degrades to a 200 fallback, never a 5xx the coach has to handle ---
+// --- Bedrock failures: a genuine infrastructure failure is a 5xx, not folded into a 200 fallback,
+// so monitoring can tell it apart from the model successfully picking "fallback" itself. The
+// frontend's classifyIntentRemote() already treats any non-2xx as "no answer" and falls back to
+// its own local answer regardless of status code, so this is purely a monitoring-visibility change.
 
-test("a generic Bedrock exception becomes fallback, not an error response", async (t) => {
+test("a generic Bedrock exception returns a 5xx, not a fallback intent", async (t) => {
   mockBedrockThrow(t, new Error("ThrottlingException: rate exceeded"));
   const res = await call({ question: "x" });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(JSON.parse(res.body), { intent: "fallback" });
+  assert.equal(res.statusCode, 502);
 });
 
-test("a Bedrock permissions failure becomes fallback, not an error response", async (t) => {
+test("a Bedrock permissions failure returns a 5xx, not a fallback intent", async (t) => {
   const err = Object.assign(new Error("AccessDeniedException"), {
     name: "AccessDeniedException",
     $metadata: { httpStatusCode: 403 },
   });
   mockBedrockThrow(t, err);
   const res = await call({ question: "x" });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(JSON.parse(res.body), { intent: "fallback" });
+  assert.equal(res.statusCode, 502);
 });

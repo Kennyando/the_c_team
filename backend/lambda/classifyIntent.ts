@@ -84,16 +84,21 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     );
 
     const raw = result.output?.message?.content?.[0]?.text ?? "";
-    // Strict parse: only ever trust an id from our own catalogue, or the literal "fallback".
-    // Anything else the model returns (extra words, a made-up id, empty output) is fallback too.
-    const cleaned = raw.trim().toLowerCase().replace(/[^a-z0-9.]/g, "");
-    const intent = VALID_INTENT_IDS.has(cleaned) ? cleaned : "fallback";
+    // Exact match only: the trimmed, lowercased output must equal one of our own catalogue ids or
+    // the literal "fallback" — nothing is stripped or reshaped first. Extra words, stray
+    // punctuation, a made-up id, or empty output all fail this and become fallback too.
+    const candidate = raw.trim().toLowerCase();
+    const intent = candidate === "fallback" || VALID_INTENT_IDS.has(candidate) ? candidate : "fallback";
 
     return json(200, { intent });
   } catch (err) {
-    // Bedrock unavailable, model access not granted, throttled, etc. — the coach
-    // treats this the same as "fallback" and keeps working with its local answer.
+    // Bedrock unavailable, model access not granted, throttled, etc. — this is a genuine
+    // infrastructure failure, not "no match", so it gets a 5xx: monitoring (the CloudWatch alarm
+    // on this route in kaki-mahjong-stack.ts) can then tell classifier failures apart from the
+    // model successfully picking "fallback". The frontend's classifyIntentRemote() already treats
+    // any non-2xx response as "no answer" and falls back to its own local answer, so this changes
+    // nothing for the player.
     console.error("classifyIntent: Bedrock call failed", err);
-    return json(200, { intent: "fallback" });
+    return json(502, { error: "Bedrock call failed" });
   }
 };

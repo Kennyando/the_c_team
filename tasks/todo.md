@@ -562,3 +562,121 @@ project ever needs per-player rate limits rather than per-deployment ones; noted
    per-user limits need real accounts (see above).
 2. **Not deployed** — same as the previous round; these are template-level and mocked-unit-level
    guarantees, not a live-traffic test against real Bedrock.
+
+# Follow-up: address PR #3 review comments
+
+Five comments on the classify-intent PR, before merge:
+
+1. `backend/README.md` overstates `shared/intents.json` as a "single source of truth" both
+   packages read — `coach.js` actually keeps its own separate `INTENTS` array. Correct the docs to
+   describe this accurately as a drift-checked contract (already enforced by a test), rather than
+   pretend the two are the same file.
+2. The API Gateway throttle and reserved concurrency bound the *rate* of Bedrock calls, not total
+   dollar spend — a sustained caller at the throttle ceiling, forever, still accumulates unbounded
+   cost over time. Fix the comments/docs to say so, and add an AWS Budget cost alert (the actual
+   dollar-amount guardrail) since this endpoint is public with no auth.
+3. `Coach.jsx`'s `askNow()` has no re-entrancy guard — rapid clicks fire concurrent `askWithModel()`
+   calls (and concurrent Bedrock requests once escalated).
+4. `classifyIntent.ts` returns HTTP 200 for genuine Bedrock infrastructure failures (throttled,
+   unavailable, access denied) — identical to a successful "fallback" classification. Monitoring
+   can't tell the two apart. Return 5xx for real failures instead; the frontend already treats any
+   non-2xx as "no answer" and falls back locally, so this needs no frontend change.
+5. The model-output parser strips arbitrary characters (`replace(/[^a-z0-9.]/g, "")`) before
+   checking catalogue membership, instead of exact-matching the trimmed/lowercased string. Tighten
+   it to remove the stripping step.
+
+## Todo
+
+- [x] 1. `backend/README.md` — rewrite the "intent catalogue is backend-owned" section to describe
+     the ids as a drift-checked contract (test-enforced), not a single shared file
+- [x] 2. `backend/lib/kaki-mahjong-stack.ts` — correct the cost-guardrail comments (rate cap, not a
+     spend ceiling); add an `aws-budgets` `CfnBudget` scoped to Bedrock cost, gated on a new
+     `coachBudgetAlertEmail` context value (skipped with a synth-time warning if unset, since a
+     Budget needs a real subscriber); add a CloudWatch alarm on `CoachApi`'s server-error count
+     (not the Lambda's own error metric — the handler catches and returns, never throws), so a
+     spike in 5xx (see #4) actually pages someone
+- [x] 3. `backend/README.md` — document the new `coachBudgetAlertEmail`/`coachBudgetLimitUsd`
+     context values alongside the existing throttle ones
+- [x] 4. `frontend/src/components/Coach.jsx` — add a `pending` guard so `askNow()` ignores a new
+     call while one is already in flight; disable the quick-question buttons and the Ask button
+     while pending so the UI shows why
+- [x] 5. `backend/lambda/classifyIntent.ts` — return `502` from the Bedrock-call catch block
+     instead of a `200` fallback; update its comment to explain why (monitoring visibility) and
+     that the frontend needs no change
+- [x] 6. `backend/test/classifyIntent.test.ts` — update the two Bedrock-failure tests to expect
+     `502`, and reword the section comment
+- [x] 7. `backend/lambda/classifyIntent.ts` — replace the character-stripping parse with an exact
+     (trim + lowercase) match against the catalogue ids / `"fallback"`
+- [x] 8. Run `cd backend && npm test`, `cd backend && npm run test:integration`, and
+     `cd frontend && npm test` + `npm run build`; `npx cdk synth` in `backend/` to confirm the new
+     Budget/alarm constructs synthesize cleanly both with and without `coachBudgetAlertEmail` set
+- [x] 9. Push the updated branch and update PR #3
+
+## Review
+
+### What was fixed
+
+**#1 — drift-contract docs.** `backend/README.md`'s "intent catalogue is backend-owned" section
+claimed `shared/intents.json` was "the one file both sides read... a single source of truth," which
+was never true — `coach.js` has always kept its own `INTENTS` array (it needs an answer function and
+routing patterns per intent, neither of which belongs in the backend's JSON). Reworded to say plainly
+that the two are separate, independently-maintained lists whose ids a test
+(`frontend/test/coach.test.js`) asserts stay equal — a drift-checked contract, not a shared file.
+
+**#2 — cost is bounded by rate, not a ceiling.** The throttle/concurrency comments in
+`kaki-mahjong-stack.ts` and `backend/README.md` now say explicitly that they cap the *rate* of
+Bedrock spend, not the total — a caller sitting at the limit forever still runs up unbounded cost
+over time, just slowly. Added a `budgets.CfnBudget` scoped to `Service: ["Amazon Bedrock"]`,
+alerting by email at 80% of a monthly USD limit. It's gated behind a new `coachBudgetAlertEmail`
+context value (AWS Budgets requires a real subscriber address, so there's no safe default), and
+`cdk synth`/`deploy` prints a `cdk.Annotations` warning if that context is missing — verified both
+ways (`npx cdk synth -c envName=dev` warns; adding `-c coachBudgetAlertEmail=test@example.com`
+produces a synthesized `AWS::Budgets::Budget` resource).
+
+**#3 — concurrent askNow().** `Coach.jsx` now guards `askNow()` with a ref (`pendingRef`, checked
+and set synchronously — `useState` alone can't prevent a second click in the same tick from also
+reading `pending === false` before either re-render lands) so a rapid double-tap or repeated
+quick-question click can't fire a second `askWithModel()` while one is in flight. The quick-question
+buttons, the text input, and the Ask button are all `disabled` while `pending` is true, so the UI
+also visibly shows why a second tap does nothing.
+
+**#4 — 5xx for real Bedrock failures.** `classifyIntent.ts`'s catch block (Bedrock throttled,
+unavailable, access denied) now returns `502` instead of folding the failure into the same `200`
+a normal "no local match, and the model said fallback" response gets. The frontend needed **no**
+change: `classifyIntentRemote()` in `coach.js` already treats any non-2xx response as "no answer"
+and returns `null`, so `askWithModel()` falls back to the local answer exactly as before — confirmed
+by the (unmodified) integration test, which still passes end-to-end through the real compiled
+Lambda. Added `ClassifyIntentServerErrorAlarm`, on `CoachApi`'s `metricServerError()` (the Lambda's
+own `metricErrors()` won't fire here — the handler catches the failure and returns a response, it
+never throws, so from Lambda's own point of view every invocation "succeeds").
+
+**#5 — exact-match parsing.** Removed the `replace(/[^a-z0-9.]/g, "")` stripping step; the model's
+output is now only trimmed and lowercased, then compared for exact equality against the catalogue
+ids or the literal `"fallback"` — no reshaping that could let noisy output coincidentally collapse
+into a valid id. All existing parser tests (extra words, mixed case, empty response, unrecognised
+id) still pass unchanged, since none of them relied on the stripping behavior to reach their
+expected result.
+
+### Test plan
+
+- `cd backend && npm test` — 17/17 pass (two tests updated to expect 502 instead of 200; the parser
+  and drift behavior needed no test changes).
+- `cd backend && npm run test:integration` — 2/2 pass, including the Bedrock-unavailable case,
+  confirming the new 502 is still transparent to the frontend's local fallback end-to-end.
+- `cd backend && npm run build` — exit 0.
+- `cd backend && npx cdk synth -c envName=dev` — synthesizes cleanly; prints the expected budget
+  warning.
+- `cd backend && npx cdk synth -c envName=dev -c coachBudgetAlertEmail=test@example.com` —
+  synthesizes cleanly; `AWS::Budgets::Budget` resource present with the expected properties.
+- `cd frontend && npm test` — 59/59 pass, including the drift-guard test (untouched by the
+  `Coach.jsx` change) and both `askWithModel` tests.
+- `cd frontend && npm run build` — exit 0.
+
+### Known limits
+
+1. **Not manually tested against a live Bedrock endpoint or a live UI.** Every check above is a
+   mocked unit/integration test or a template-synthesis check — no `cdk deploy` and no browser
+   session exercising `Coach.jsx`'s new disabled-button behavior against a running dev server.
+2. **The Budget alert is opt-in.** A deployment that never sets `coachBudgetAlertEmail` still has
+   no dollar-amount cost alert — only the pre-existing rate/concurrency caps. The synth-time
+   warning is the only nudge toward setting it.

@@ -15,7 +15,12 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
   const [open, setOpen] = useState(initialOpen);
   const [thread, setThread] = useState([]);
   const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState(false);
   const answersRef = useRef(null);
+  // A ref, not just the `pending` state above: state updates are batched/async, so two clicks in
+  // the same tick could both still read `pending === false` before either re-render lands. The
+  // ref is set synchronously, so the second call is refused the instant the first one starts.
+  const pendingRef = useRef(false);
 
   const available = hints ? pendingHelp(state).length : 0;
 
@@ -30,11 +35,21 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
   };
 
   const askNow = async (question) => {
-    if (!question.trim()) return;
+    // Refuse a second question while one is still in flight — otherwise a rapid double-tap (or
+    // mashing a quick-question button) fires concurrent askWithModel() calls, and once escalated,
+    // concurrent Bedrock requests for what should be a single answer.
+    if (!question.trim() || pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
     setDraft('');
-    // Resolves instantly for anything the local patterns already recognise — askWithModel
-    // only reaches for the network when there is genuinely no local match.
-    put(question, await askWithModel(question, state));
+    try {
+      // Resolves instantly for anything the local patterns already recognise — askWithModel
+      // only reaches for the network when there is genuinely no local match.
+      put(question, await askWithModel(question, state));
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
   };
 
   // With hints on, lead with what is happening right now rather than an empty panel. Keyed on
@@ -89,7 +104,7 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
 
       <div className="coach-quick">
         {QUICK_QUESTIONS.map((q) => (
-          <button key={q} type="button" onClick={() => askNow(q)}>{q}</button>
+          <button key={q} type="button" onClick={() => askNow(q)} disabled={pending}>{q}</button>
         ))}
       </div>
 
@@ -104,8 +119,9 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
           value={draft}
           placeholder="Type a question…"
           onChange={(e) => setDraft(e.target.value)}
+          disabled={pending}
         />
-        <button type="submit" className="primary">Ask</button>
+        <button type="submit" className="primary" disabled={pending}>Ask</button>
       </form>
     </section>
   );
