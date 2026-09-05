@@ -6,24 +6,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { bestDiscard } from '../src/game/advisor.js';
+import { DEFAULT_RULES } from '../src/game/scoring.js';
 import { tryDiscardPuzzle, checkDiscardAnswer } from '../src/game/puzzles.js';
+
+// Matches puzzles.js's own internal puzzleContext() exactly: default house rules, seated East,
+// with only the hand itself visible (no discard history) — a puzzle has no live game state behind
+// it to build a real context from.
+const ctxFor = (hand) => {
+  const visibleTiles = {};
+  for (const t of hand) visibleTiles[t] = (visibleTiles[t] || 0) + 1;
+  return { rules: DEFAULT_RULES, seatWind: 'we', prevailingWind: 'we', visibleTiles };
+};
 
 test('an already-complete hand is rejected — there is nothing to discard toward', () => {
   const winning = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'c9', 'we', 'we'];
   assert.equal(tryDiscardPuzzle(winning), null);
 });
 
-test('a hand where every discard leaves the same shanten is rejected — nothing to teach', () => {
-  // 14 tiles spaced 3 ranks apart in every suit, plus every honour: no two are close enough to
-  // form a run or a pair, so discarding any one of them leaves the same (maximum) distance.
-  const scattered = ['d1', 'd4', 'd7', 'b1', 'b4', 'b7', 'c1', 'c4', 'c7', 'we', 'ws', 'ww', 'wn', 'dr'];
+test('a hand where every discard ties for the same best blended score is rejected — nothing to teach', () => {
+  // Genuinely degenerate under bestDiscard()'s value-awareness too, not just structurally
+  // scattered: none of these tiles is a dragon, this table's seat/prevailing wind, or part of any
+  // pair/run, so nothing here carries even the small single-honour value credit either — every
+  // discard is worth exactly the same on both speed and value. (A hand built only from
+  // structurally-disconnected tiles, the way this test used to construct one, is no longer
+  // sufficient on its own: any dragon or seat/prevailing-wind tile now breaks the tie even when
+  // fully scattered, so this fixture had to be found by search rather than hand-built.)
+  const scattered = ['d1', 'd3', 'd4', 'd8', 'd9', 'b2', 'b3', 'b3', 'b7', 'b8', 'c6', 'c6', 'ww', 'ww'];
   assert.equal(tryDiscardPuzzle(scattered), null);
 });
 
 test('an ordinary hand becomes a puzzle matching bestDiscard() directly', () => {
   // Same hand as advisor.test's "bestDiscard picks the dead tile and says why".
   const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
-  const rec = bestDiscard({ hand, melds: [] });
+  const rec = bestDiscard({ hand, melds: [], bonus: [] }, ctxFor(hand));
 
   const puzzle = tryDiscardPuzzle(hand);
   assert.ok(puzzle, 'an ordinary hand should produce a puzzle');
@@ -52,7 +67,7 @@ test('a hand ready to win, with only one dead tile, is a hard puzzle — the bes
 test('a scattered, far-from-ready hand with many equally fine discards is an easy puzzle', () => {
   const hand = ['d1', 'd4', 'd8', 'd9', 'b1', 'b1', 'b2', 'b6', 'c4', 'c8', 'we', 'ww', 'dr', 'dw'];
   const puzzle = tryDiscardPuzzle(hand);
-  assert.equal(puzzle.tieCount, 11);
+  assert.equal(puzzle.tieCount, 8);
   assert.equal(puzzle.difficulty, 'easy');
 });
 

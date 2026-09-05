@@ -4,7 +4,7 @@
 // Everything here is computed from the player's actual hand and the table's actual house rules, so
 // the advice can never contradict the settings the group is playing under.
 
-import { STANDARD_TILES, isSuited, isHonour, suitOf, rankOf, tileName } from './tiles.js';
+import { STANDARD_TILES, DRAGONS, isSuited, isHonour, suitOf, rankOf, tileName } from './tiles.js';
 import { toCounts, isWinningHand, getClaimsFor } from './melds.js';
 import { scoreHand, seatWindOf } from './scoring.js';
 import { keepValue } from './bots.js';
@@ -117,38 +117,165 @@ const SUIT_WORDS = { d: 'Dots', b: 'Bamboo', c: 'Characters' };
 const suitWord = (s) => SUIT_WORDS[s];
 
 /**
+ * How many tai one extra shanten is "worth" when weighing a slightly slower discard against a
+ * more valuable one. This is a named, tunable guess, not a number derived from real win-rate
+ * data — the honest alternative would be a full turn-by-turn probability simulation, which this
+ * project has deliberately not built (see docs/mvp-notes.md). Exported so anything grading a
+ * discard against `bestDiscard()`'s recommendation (the decision log, puzzle checking) uses this
+ * exact same scale rather than inventing its own.
+ */
+export const VALUE_PER_SHANTEN = 2;
+
+/**
+ * Build what `estimateValue()`/`bestDiscard()` need to know about the table: whose seat/prevailing
+ * wind apply, which scoring rules are live, and every tile already known to be out of the wall.
+ *
+ * `visibleTiles` deliberately never reads `state.wall` itself, even though this engine's wall is a
+ * real, fully-determined array in memory — a real player wouldn't know its contents, and advice
+ * that quietly used that knowledge wouldn't be honest advice. Every hand, every discard, and every
+ * exposed meld/bonus across all four seats is "known"; everything else (the wall and every
+ * opponent's concealed hand) is treated as one undifferentiated unknown pool, the same assumption
+ * every real tile-efficiency tool makes when opponents' hands aren't visible.
+ */
+export function contextFor(state, player) {
+  const visibleTiles = {};
+  const add = (tile) => { visibleTiles[tile] = (visibleTiles[tile] || 0) + 1; };
+  for (const p of state.players) {
+    for (const t of p.hand) add(t);
+    for (const m of p.melds) for (const t of m.tiles) add(t);
+    for (const t of p.bonus) add(t);
+  }
+  for (const d of state.discards) add(d.tile);
+
+  return {
+    rules: state.rules,
+    seatWind: seatWindOf(player.seat, state.dealer),
+    prevailingWind: state.prevailingWind,
+    visibleTiles,
+  };
+}
+
+/**
+ * A rough, rules-aware estimate of how many tai a hand might be worth once complete — the "value"
+ * half of the speed-vs-value tradeoff `bestDiscard()` weighs. Not a full expected-value
+ * simulation: exact (weighted by how many of each winning tile are actually still unseen) once
+ * the hand is ready, a small hand-authored heuristic before that, scoped to exactly the scoring
+ * patterns this table's own `ctx.rules` actually reward.
+ */
+export function estimateValue(player, ctx) {
+  const distance = shanten(player.hand, player.melds);
+
+  if (distance <= 0) {
+    const ready = waits(player);
+    if (!ready.length) return 0;
+
+    let weightedTai = 0;
+    let totalRemaining = 0;
+    for (const tile of ready) {
+      const score = scoreHand({
+        concealed: [...player.hand, tile],
+        melds: player.melds,
+        bonus: player.bonus,
+        seatWind: ctx.seatWind,
+        prevailingWind: ctx.prevailingWind,
+        rules: ctx.rules,
+      });
+      if (!score) continue;
+      const remaining = Math.max(0, 4 - (ctx.visibleTiles[tile] || 0));
+      weightedTai += score.tai * remaining;
+      totalRemaining += remaining;
+    }
+    return totalRemaining > 0 ? weightedTai / totalRemaining : 0;
+  }
+
+  return honourAndFlushPotential(player, ctx);
+}
+
+// A single scoring-relevant honour is worth holding a little longer on the chance of pairing it —
+// a small credit, well below a real pair, so it never competes with genuine structure. A pair
+// hints at real future value; an already-formed triplet (which discarding down to would be
+// unusual mid-hand, but the counts can still say 3 or 4 via a kong) is worth more still.
+const HONOUR_PROGRESS = { 1: 0.25, 2: 1, 3: 2, 4: 2 };
+
+/** Structural value signals for a hand still short of tenpai: an honour tile, pair, or triplet in
+ * progress (only when the matching rule is actually on), and a lean toward a flush. Every weight
+ * here is a starting guess — flagged as such, not presented as tuned. */
+function honourAndFlushPotential(player, ctx) {
+  const { rules, seatWind, prevailingWind } = ctx;
+  const counts = toCounts(player.hand);
+  let value = 0;
+
+  for (const dragon of DRAGONS) {
+    if (rules.dragonPong && counts[dragon]) value += HONOUR_PROGRESS[counts[dragon]] || 0;
+  }
+  if (rules.seatWind && counts[seatWind]) value += HONOUR_PROGRESS[counts[seatWind]] || 0;
+  if (rules.prevailingWind && prevailingWind !== seatWind && counts[prevailingWind]) {
+    value += HONOUR_PROGRESS[counts[prevailingWind]] || 0;
+  }
+
+  if (rules.halfFlush || rules.fullFlush) {
+    const suitTotals = { d: 0, b: 0, c: 0 };
+    for (const t of player.hand) if (isSuited(t)) suitTotals[suitOf(t)]++;
+    const dominant = Math.max(...Object.values(suitTotals));
+    const hasHonours = player.hand.some(isHonour);
+    if (dominant >= 10) value += hasHonours ? (rules.halfFlush ? 1 : 0) : (rules.fullFlush ? 2 : 0);
+  }
+
+  return value;
+}
+
+/**
+ * The full evaluation of one candidate discard: the resulting shanten, its estimated value, and
+ * the blended score `bestDiscard()` ranks by. Exported so anything that needs to grade a
+ * *different* tile against the recommendation — the decision log, puzzle answer checking — uses
+ * these exact same real numbers instead of re-deriving the formula or trusting a capped
+ * `alternatives` list (a mistake already made and fixed once this project; see the decision log's
+ * own history).
+ */
+export function evaluateDiscard(player, tile, ctx) {
+  const rest = [...player.hand];
+  rest.splice(rest.indexOf(tile), 1);
+  const after = shanten(rest, player.melds);
+  const value = estimateValue({ ...player, hand: rest }, ctx);
+  return { tile, after, value, blended: -after * VALUE_PER_SHANTEN + value };
+}
+
+/**
  * The best tile to discard.
  *
- * Ranked by the shanten left behind — the tile whose loss keeps you closest to winning — with the
- * bots' own `keepValue` as the tie-break. Looking at the resulting shanten is why the coach's
- * advice is better founded than the bots' play, which only ever consults `keepValue`.
+ * Ranked primarily by speed, but not *only* by speed: every candidate within one shanten of the
+ * fastest is also eligible, scored by a blend of speed and `estimateValue()`, so a discard that's
+ * marginally slower can still win when it protects real value — the tradeoff a fixed-shanten-first
+ * ranking could never express. The window is deliberately bounded to one shanten: this is meant to
+ * catch "don't break a real dragon pair for one turn of speed," not license "sacrifice several
+ * turns for a speculative hand," which would be bad advice for a coach this simple. Ties on the
+ * blended score fall back to the bots' own `keepValue`, exactly as before.
  */
-export function bestDiscard(player) {
+export function bestDiscard(player, ctx) {
   const suitTotals = { d: 0, b: 0, c: 0 };
   for (const t of player.hand) if (isSuited(t)) suitTotals[suitOf(t)]++;
   const counts = toCounts(player.hand);
 
-  const candidates = [...new Set(player.hand)].map((tile) => {
-    const rest = [...player.hand];
-    rest.splice(rest.indexOf(tile), 1);
-    return {
-      tile,
-      after: shanten(rest, player.melds),
-      keep: keepValue(tile, counts, suitTotals),
-    };
-  });
+  const candidates = [...new Set(player.hand)].map((tile) => ({
+    ...evaluateDiscard(player, tile, ctx),
+    keep: keepValue(tile, counts, suitTotals),
+  }));
 
-  candidates.sort((a, b) => a.after - b.after || a.keep - b.keep);
-  const choice = candidates[0];
+  const bestAfter = Math.min(...candidates.map((c) => c.after));
+  const eligible = candidates.filter((c) => c.after <= bestAfter + 1);
+  eligible.sort((a, b) => b.blended - a.blended || a.after - b.after || a.keep - b.keep);
+  const choice = eligible[0];
 
   return {
     tile: choice.tile,
     shantenAfter: choice.after,
+    value: choice.value,
+    blended: choice.blended,
     reasons: discardReasons(choice.tile, player),
-    // Anything that leaves you equally close is an acceptable alternative.
-    alternatives: candidates
+    // Anything that ties the winning blended score is an acceptable alternative.
+    alternatives: eligible
       .slice(1)
-      .filter((c) => c.after === choice.after)
+      .filter((c) => c.blended === choice.blended)
       .slice(0, 2)
       .map((c) => c.tile),
   };
@@ -237,7 +364,7 @@ export function situationHint(state) {
   }
 
   if (state.phase === 'act' && state.turn === 0) {
-    const { tile } = bestDiscard(you);
+    const { tile } = bestDiscard(you, contextFor(state, you));
     return `Your turn. ${tileName(tile)} is the safest tile to let go.`;
   }
 

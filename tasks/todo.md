@@ -1448,3 +1448,140 @@ actual code before deciding what to do, rather than patching all three the same 
    inspection, nothing in the current codebase can actually produce a malformed answer, so there is
    no realistic scenario to regression-test against. The check stays as insurance against a future
    change breaking that invariant silently.
+
+# A native, value-aware `bestDiscard()`
+
+`shanten()`/`bestDiscard()` in `advisor.js` only ever optimised for speed to a win — zero awareness
+of what the resulting hand is actually worth. That's why every one of the 9 curated puzzles
+recommended "discard the lone dragon/honour": with no value signal at all, an isolated honour is
+almost always the uniquely-fastest tile to shed, so the whole library taught one lesson.
+
+Researched open-source engines that already do "shanten → win probability × expected score" before
+designing anything: `nekobean/mahjong-cpp`'s `ExpectedScoreCalculator` is the real prior art, but
+it's GPL-3.0 and shaped as a native C++ service, not a fit for this shipped frontend either way — so
+this is a native, original implementation, informed by its approach rather than its code (algorithms
+aren't copyrightable, only their specific source is).
+
+**Evaluated against a competing PR before designing further, not just in the abstract.** PR #8
+proposed a similar-sounding rewrite (`advisor_1.js`). Downloaded it and actually ran it against this
+repo's real dependencies rather than reviewing it by reading alone: it doesn't import as submitted
+(missing a `scoring.js` export it depends on), its `visibleTileCounts()` assumes a discard-history
+shape that doesn't match this engine's real one (verified: 3 real discarded copies of a tile counted
+as 0 visible), it recommended **the exact same tile as the pre-existing code on all 9 of this repo's
+real curated puzzles** (its value signal never reaches far enough ahead to matter for a typical
+3-6-shanten position), and it ran 15-60x slower per call. Rejected in favour of the plan below.
+
+## Todo
+
+- [x] 1. `advisor.js` — new `estimateValue(player, ctx)`: exact expected value at tenpai
+     (`scoreHand()` over `waits()`, weighted by remaining unseen copies of each winning tile) and a
+     hand-authored heuristic before tenpai (`honourAndFlushPotential`: credit for a dragon,
+     seat-wind or prevailing-wind pair/lone-tile — only for patterns the table's own house rules
+     actually reward — plus a flush lean)
+- [x] 2. `advisor.js` — new `contextFor(state, player)`: builds `ctx = { rules, seatWind,
+     prevailingWind, visibleTiles }` from every seat's hand/melds/bonus plus all discards, never
+     from `state.wall`'s actual contents — the wall and opponents' concealed hands stay an
+     undifferentiated unknown pool, the way any honest efficiency tool treats them
+- [x] 3. `advisor.js` — new `evaluateDiscard(player, tile, ctx)` and a rewritten `bestDiscard(player,
+     ctx)`: ranks every candidate within one shanten of the fastest by `blended = -shantenAfter *
+     VALUE_PER_SHANTEN + value`, falling back to the existing `keepValue` tie-break beneath that
+- [x] 4. Rippled the new `ctx` argument through every call site: `advisor.js` (`situationHint`),
+     `coach.js` (`adviceDiscard`, `adviceProgress`), `engine.js` (`recordDiscardDecision`, now
+     `(state, player, chosen)` so it can build a real `contextFor`), `puzzles.js`
+     (`tryDiscardPuzzle`/`checkDiscardAnswer`, via a fixed `puzzleContext()` — a puzzle has no live
+     4-player state to derive a real context from)
+- [x] 5. New `frontend/test/advisor.test.js` — this module had never had a dedicated file before
+     (only exercised indirectly via `coach.test.js`/`engine.test.js`): `estimateValue()` at tenpai
+     against a real, checkable score; the heuristic path respecting a rule being on vs. off; the
+     concrete regression this feature exists for (a hand where the fastest tile and the
+     highest-value tile differ, asserting `bestDiscard()` picks the value one); `contextFor()`
+     reading every seat's hand/melds/bonus/discards as visible without ever touching `state.wall`
+- [x] 6. Re-verified every existing fixture that touches `bestDiscard()`'s exact tile choice against
+     the new value-aware function rather than assuming it still held — see "What changed
+     underneath" below
+
+## Review
+
+### What was built
+
+Exactly per the plan. `bestDiscard()`'s ranking is now `(blended speed+value score, keepValue)`
+instead of `(shanten alone, keepValue)`, within a bounded one-shanten-of-fastest window so it can
+never recommend sacrificing several turns of speed for value. The live coach, the decision log and
+discard puzzles all still consume this one function, so none of them can disagree with each other —
+same guarantee this project has held since the decision log first shipped.
+
+**The honest finding, not overclaimed:** the plan's "core problem" framing was that value needs to
+occasionally *outrank* a marginally faster tile, not just referee ties. That override mechanism is
+real and present in the code (the one-shanten eligible window), but a ~75-second-bounded, ~20,000
+random-hand simulation run directly against this implementation found **zero** cases of it actually
+firing with the current `VALUE_PER_SHANTEN = 2` and the current heuristic weights. The actual,
+measured improvement is entirely from richer **value-based tie-breaking** among tiles that already
+tie on speed — previously all such ties fell through to `keepValue`, a pure structural heuristic
+blind to scoring potential, which is exactly why "discard the lone honour" won almost every tie.
+This is a real, demonstrated improvement (5 of the 9 curated puzzles changed which tile they
+recommend, 3 of them switching from a lone honour to a suited tile) but a different mechanism than
+the one most emphasized going in — documented here and in `docs/mvp-notes.md` rather than claimed as
+the override working as originally envisioned.
+
+### What changed underneath (re-verification, not re-derivation)
+
+Making `bestDiscard()` value-aware changes which tile is "correct" for any hand where an honour or
+flush-relevant tile used to look like a free discard. Re-ran every existing fixture through the new
+engine via throwaway verification scripts rather than hand-deriving expected values (this session's
+own track record of arithmetic mistakes reasoning about shanten by hand made that the only
+trustworthy method):
+
+- **3 of the 9 curated puzzles drifted out of their assigned difficulty tier** once a lone
+  scoring-relevant honour started carrying real credit (`easy-1` → medium, `medium-1`/`medium-2` →
+  hard). Replaced with 3 freshly-found hands, re-verified against the recalibrated thresholds below,
+  picked for diverse `bestTile`s rather than three near-identical answers.
+- **Difficulty-tier thresholds recalibrated a second time** (tie-count based, same methodology as
+  the original calibration from an earlier PR): the old cutoffs (`≤4 hard, ≤7 medium`) were tuned
+  for the pre-value-aware tie distribution; a fresh ~20,000-hand simulation against the new engine
+  gave `≤4 hard, ≤6 medium, else easy`.
+- **3 existing unit-test fixtures needed real replacement**, not just updated assertions, because
+  the hands they relied on to be "degenerate" or "fully tied" no longer were once a lone dragon or
+  seat/prevailing wind stopped being value-neutral: `puzzles.test.js`'s degenerate-hand test and its
+  tie-count assertion (11 → 8, same tier), and `engine.test.js`'s alternatives-truncation regression
+  test (its old 5-lone-honours hand was no longer a 5-way tie).
+- **Two pre-existing `engine.test.js`/`advisor.test.js` fixtures turned out to be flaky**, not
+  broken by the feature but exposed by it: both build a live `state` via `newGame()` (a real random
+  deal) and only pin the human player's hand, which was safe when `bestDiscard()` only looked at
+  that one hand. Now that `recordDiscardDecision`/`contextFor` read *every* seat's hand, melds and
+  bonus tiles to build `visibleTiles`, an unpinned random tile dealt to another seat (an extra
+  `we`/`ws` copy in one case, a randomly-dealt flower tile landing in another seat's `.bonus` in the
+  other — `newGame()`'s own post-deal bonus-replacement pass runs before a test gets to override
+  anything) could silently tip an EV-weighted tie or inflate a visible-count assertion. Fixed by
+  pinning every seat's hand (and clearing every seat's `.bonus`) in both tests rather than just the
+  human's — caught by running the full suite 20+ times in a loop, not by a single green run, after
+  the first flake surfaced on an unrelated later pass.
+
+### Test plan
+
+- `cd frontend && npm test` — 91/91 pass (84 previous + 7 new in `advisor.test.js`), confirmed
+  stable across 15 consecutive full-suite runs after fixing the two flaky fixtures above (a single
+  green run was not enough evidence, given both flakes only appeared intermittently).
+- `cd frontend && npm run test:components` — 13/13 pass, unaffected.
+- `cd frontend && npm run build` — clean.
+- Manual browser check: opened the Easy tier's first puzzle and confirmed it now recommends
+  discarding a suited dots tile rather than the lone dragon that used to be correct there; opened
+  Medium puzzle 1 and confirmed its recommended `9 Bamboo` is graded "Correct!"; started a live game
+  and asked the coach "what should I discard?" on a dealt hand holding a Green Dragon pair plus a
+  lone South Wind — it correctly recommended discarding the lone wind, with the explanation "It is a
+  lone wind or dragon, so it needs three of a kind to be worth anything," explicitly in value terms
+  rather than only citing shanten.
+
+### Known limits
+
+1. **The "sacrifice speed for value" override is real code but not yet a real behaviour** — see
+   the honest finding above. `VALUE_PER_SHANTEN` and the heuristic's per-pattern weights are all
+   named, tunable constants rather than derived numbers; raising `VALUE_PER_SHANTEN` or the flush/
+   honour weights would make the override fire more often, but that tuning wasn't in scope this
+   round and wasn't done blind — it would need its own simulation-driven pass to avoid recommending
+   a play that's obviously too greedy.
+2. **`estimateValue()` past tenpai is still a hand-authored heuristic, not a probability model** —
+   deliberately, per the "lightweight single-step estimate" fidelity decision made before
+   implementation. It only ever reasons about the player's own hand and the table's house rules; it
+   never looks at what an opponent might already be collecting.
+3. **Still no defensive awareness**, unchanged from before this round — discard advice still doesn't
+   weigh how dangerous a tile is to throw, because the bots do not play to win off discards yet.

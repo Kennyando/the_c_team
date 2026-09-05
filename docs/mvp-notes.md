@@ -119,9 +119,12 @@ than composing one, which suits the audience anyway.
 - `src/components/Coach.jsx` — the panel. Scales with the size slider, works in the contrast theme,
   becomes a bottom sheet on narrow screens, and reads answers aloud when voice is on.
 
-Discard advice ranks each tile by **how close the hand would still be after letting it go**, which
-makes it better founded than the bots' own play — they only consult `keepValue`, which the coach
-uses just as a tie-break. Both share that one function, so advice and play cannot drift apart.
+Discard advice ranks each tile by a blend of **how close the hand would still be after letting it
+go** and **how much the resulting hand is likely to be worth** (`estimateValue()` in `advisor.js`),
+not raw speed alone. This makes it better founded than the bots' own play — they still only consult
+`keepValue`, a pure speed heuristic, which the coach now uses only as a final tie-break beneath both
+of those. The live coach, the decision log and discard puzzles all share this one `bestDiscard()`,
+so advice, mistake-tracking and puzzle answers can never disagree with each other.
 
 Proactive hints are **off by default**: when switched on, the Help button gets a quiet mark when a
 call is available and the panel leads with a tip. Nothing pops up, nothing makes a sound, and there
@@ -201,8 +204,21 @@ These are deliberate MVP boundaries, not defects:
    defense" section), so it's deliberately rate-limited and concurrency-capped rather than
    authenticated — appropriate for a same-table coach, but worth revisiting if this ever needs
    real accounts.
-8. **Discard advice optimises for speed to a win, not defence.** It does not weigh how dangerous a
-   tile is to throw, because the bots do not play to win off discards yet.
+8. **Discard advice now weighs hand value alongside speed, but mostly as a tie-breaker in
+   practice — partially addressed.** `bestDiscard()`/`evaluateDiscard()` in `advisor.js` blend
+   resulting shanten with `estimateValue()`: an exact expected-value calculation at tenpai (real
+   `scoreHand()` weighted by how many copies of each winning tile are still unseen) and a
+   hand-authored heuristic before it (credit for a dragon, seat-wind or prevailing-wind
+   pair/lone-tile, and a flush lean — but only for patterns the table's own house rules actually
+   reward). The blend is deliberately bounded to within one shanten of the fastest tile —
+   `VALUE_PER_SHANTEN` sets the exchange rate, a starting guess rather than a derived number — so
+   it can in principle keep a marginally slower tile that protects real scoring potential. In
+   practice a ~20,000-hand random simulation found that override essentially never fires with the
+   current weights; the measured improvement is richer **tie-breaking** among tiles that already
+   tie on speed, which used to fall through to `keepValue` and pick the same lone honour almost
+   every time. Five of the 9 curated puzzles changed which tile they recommend once this landed,
+   three of them switching from a lone honour to a suited tile. It still does not weigh how
+   dangerous a tile is to throw, because the bots do not play to win off discards yet.
 9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
    entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
    claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it

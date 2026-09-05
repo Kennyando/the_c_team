@@ -256,6 +256,13 @@ test('a discard tied with the recommended tile is not read as a mistake', () => 
   // Four complete sets plus two unpaired honours: discarding either is equally good, leaving four
   // sets and one tile waiting to pair up.
   state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'c9', 'we', 'ws'];
+  // recordDiscardDecision builds its context from every seat's hand, not just the human's — with
+  // bestDiscard() now value-aware, an extra copy of 'we'/'ws' randomly dealt to another seat would
+  // change the remaining-copy weighting behind the tenpai wait on each tile and could break this
+  // tie unpredictably. Pin the other three hands so this stays a genuine tie every run.
+  state.players[1].hand = ['b4', 'b4', 'b5', 'b5', 'b6', 'b6', 'c1', 'c1', 'c2', 'c2', 'c3', 'c3', 'd7'];
+  state.players[2].hand = ['b7', 'b7', 'b8', 'b8', 'b9', 'b9', 'c4', 'c4', 'c5', 'c5', 'c6', 'c6', 'd8'];
+  state.players[3].hand = ['c8', 'c8', 'c9', 'c9', 'd9', 'd9', 'ww', 'ww', 'wn', 'wn', 'dr', 'dr', 'dw'];
 
   discardTile(state, 'ws');
 
@@ -268,17 +275,18 @@ test('a discard tied with the recommended tile is not read as a mistake', () => 
 
 test('a discard tied for best is not a mistake even when bestDiscard() truncates it out of alternatives', () => {
   const state = newGame(rules, 0);
-  // 3 complete sets plus five lone honours: discarding any one of the five leaves the same
-  // shanten, but bestDiscard()'s `alternatives` list is capped at two entries (it's written for
-  // the coach's UI text, not as a completeness signal), so only two of the four ties show up
-  // there. `wn` and `dr` are the two left out.
-  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'c7', 'c8', 'c9', 'we', 'ws', 'ww', 'wn', 'dr'];
+  // 3 complete sets plus 5 tiles that are all equally worthless — 3 plain winds (none of them
+  // this table's seat or prevailing wind) and 2 disconnected suited singles. All 5 tie for the
+  // best blended score, but bestDiscard()'s `alternatives` list is capped at two entries (it's
+  // written for the coach's UI text, not as a completeness signal), so `b1` and `b9` here are
+  // left out of it even though they tie exactly like `ww`/`wn` do.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'c7', 'c8', 'c9', 'ws', 'ww', 'wn', 'b1', 'b9'];
 
-  discardTile(state, 'dr');
+  discardTile(state, 'b9');
 
   const entry = state.decisions.at(-1);
-  assert.equal(entry.recommended, 'we');
-  assert.equal(entry.chosen, 'dr');
+  assert.equal(entry.recommended, 'ws');
+  assert.equal(entry.chosen, 'b9');
   assert.equal(entry.shantenAfterChosen, entry.shantenAfterRecommended);
   assert.equal(entry.optimal, true);
 });

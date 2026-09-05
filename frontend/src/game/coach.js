@@ -6,7 +6,7 @@
 
 import { tileName } from './tiles.js';
 import { seatWindOf, RULE_LABELS } from './scoring.js';
-import { bestDiscard, handSummary, claimAdvice, describeDistance } from './advisor.js';
+import { bestDiscard, contextFor, handSummary, claimAdvice, describeDistance } from './advisor.js';
 
 export const MAX_LINES = 3;
 export const MAX_LINE_LENGTH = 120;
@@ -25,7 +25,7 @@ function adviceDiscard(state) {
     return { title: 'Not your turn yet', lines: ['Ask me again when it is your turn to discard.'] };
   }
 
-  const { tile, shantenAfter, reasons, alternatives } = bestDiscard(you(state));
+  const { tile, shantenAfter, reasons, alternatives } = bestDiscard(you(state), contextFor(state, you(state)));
   const lines = [`Discard ${tileName(tile)}.`];
   if (reasons.length) lines.push(reasons[0]);
   lines.push(
@@ -60,8 +60,8 @@ function adviceProgress(state) {
   if (ready.length) {
     lines.push(`Waiting on ${ready.map(tileName).join(' or ')}.`);
   } else {
-    const { tile } = bestDiscard(you(state));
-    lines.push(`Letting go of ${tileName(tile)} is your quickest way forward.`);
+    const { tile } = bestDiscard(you(state), contextFor(state, you(state)));
+    lines.push(`Letting go of ${tileName(tile)} is your best way forward.`);
   }
   return { title: 'How your hand stands', lines };
 }

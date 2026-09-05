@@ -7,8 +7,15 @@
 // `tryDiscardPuzzle()` at load time below, not typed by hand — there is exactly one source of
 // truth for what counts as correct and how hard a puzzle is, the same calculator the live coach
 // and the decision log already use. Every hand here was pulled from that calculator's own output
-// (via `generateDiscardPuzzle()` while it still existed) rather than invented, then hand-picked for
-// this library and frozen.
+// (via a throwaway random-hand search script) rather than invented, then hand-picked for this
+// library and frozen.
+//
+// `easy-1`/`medium-1`/`medium-2` were replaced once already: `bestDiscard()` became value-aware
+// (weighing a hand's realistic scoring potential alongside raw speed, not speed alone), which
+// changed which tile — and therefore which difficulty tier — some of these hands land in. Three
+// of the original nine drifted out of their tier under the new calculator; those three were
+// swapped for freshly-found hands re-verified against the updated tier thresholds, everything
+// else here still holds under the same calculator that changed.
 //
 // `discards`/`wallCount` are presentation only — a plausible-looking table, not a replayed game —
 // so a puzzle looks like a real mid-hand snapshot instead of an isolated list of 14 tiles.
@@ -19,7 +26,7 @@ const RAW = {
   easy: [
     {
       id: 'easy-1',
-      hand: ['d1', 'd2', 'd4', 'd8', 'b1', 'b2', 'b3', 'b8', 'b9', 'c1', 'c7', 'we', 'ww', 'dw'],
+      hand: ['d2', 'd5', 'd6', 'd9', 'b1', 'b3', 'b3', 'b9', 'c1', 'c2', 'c2', 'c7', 'c9', 'dr'],
       discards: [{ tile: 'wn', by: 1 }, { tile: 'dw', by: 2 }, { tile: 'c1', by: 3 }],
       wallCount: 70,
     },
@@ -39,7 +46,7 @@ const RAW = {
   medium: [
     {
       id: 'medium-1',
-      hand: ['d3', 'd4', 'd9', 'b2', 'b2', 'b3', 'b3', 'b3', 'b6', 'c3', 'c9', 'c9', 'dr', 'dg'],
+      hand: ['d2', 'd7', 'd7', 'd8', 'd9', 'b1', 'b1', 'b5', 'b9', 'c3', 'c4', 'c5', 'c9', 'dg'],
       discards: [
         { tile: 'wn', by: 1 }, { tile: 'd1', by: 2 }, { tile: 'c1', by: 3 },
         { tile: 'ws', by: 1 }, { tile: 'b1', by: 2 },
@@ -48,7 +55,7 @@ const RAW = {
     },
     {
       id: 'medium-2',
-      hand: ['d2', 'd4', 'b1', 'b2', 'b3', 'b5', 'b9', 'c3', 'c4', 'c7', 'c7', 'we', 'dr', 'dw'],
+      hand: ['d5', 'd6', 'd6', 'b3', 'b4', 'b8', 'c1', 'c1', 'c6', 'c6', 'c7', 'c8', 'ww', 'wn'],
       discards: [{ tile: 'ww', by: 1 }, { tile: 'd9', by: 2 }, { tile: 'c1', by: 3 }, { tile: 'wn', by: 1 }],
       wallCount: 52,
     },
@@ -105,7 +112,7 @@ export const PUZZLE_LIBRARY = Object.fromEntries(
   Object.entries(RAW).map(([tier, entries]) => [
     tier,
     entries.map((entry) => {
-      const derived = tryDiscardPuzzle(entry.hand);
+      const derived = tryDiscardPuzzle(entry.hand, entry.discards);
       if (!derived) {
         throw new Error(`puzzleLibrary: "${entry.id}" is a degenerate hand (already complete, or every discard ties)`);
       }

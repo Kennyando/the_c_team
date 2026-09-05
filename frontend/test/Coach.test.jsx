@@ -7,12 +7,12 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import Coach from '../src/components/Coach.jsx';
 import { newGame } from '../src/game/engine.js';
 import { DEFAULT_RULES } from '../src/game/scoring.js';
-import { bestDiscard } from '../src/game/advisor.js';
+import { bestDiscard, contextFor } from '../src/game/advisor.js';
 import { tileName } from '../src/game/tiles.js';
 
 test('asking what to discard renders a tile image for the recommended tile', async () => {
   const state = newGame(DEFAULT_RULES, 0);
-  const rec = bestDiscard(state.players[0]);
+  const rec = bestDiscard(state.players[0], contextFor(state, state.players[0]));
   render(<Coach state={state} voice={false} hints={false} initialOpen />);
 
   fireEvent.click(screen.getByRole('button', { name: 'What should I discard?' }));
