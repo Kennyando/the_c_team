@@ -2071,3 +2071,28 @@ frontend 103/103.
 
 Next: `cdk bootstrap` + `cdk deploy` in the sandbox, set `VITE_REVIEW_URL`, play a hand, confirm
 `modelAssisted: true` and that Nova Micro's prose is acceptable (or bump `-c agentModelId=`).
+
+## PR #14 review — changes made
+
+- [x] **Synth-time region/profile validation (request-changes).** `lib/bedrockResources.ts` now
+     also exports `assertModelRegionMatch(region, id, contextKey)`: if `id` is a `us.` / `eu.` /
+     `apac.` / `us-gov.` cross-region inference profile whose geo doesn't match the deploy region,
+     it throws with a fix hint (`-c bedrockModelId=<geo>.<model-id>` or deploy elsewhere). Called
+     for both `bedrockModelId` and `agentModelId` before the Lambdas are built. Verified:
+     `cdk synth -c bedrockModelId=eu.amazon.nova-micro-v1:0` (region us-east-1) fails; the default
+     synth passes.
+- [x] **Helper extracted + scoped (non-blocking note).** `bedrockInvokeResources` moved from an
+     inline arrow in the stack to `lib/bedrockResources.ts`, pure (takes partition/region/account/
+     id, no `this`), with a header comment stating it handles plain foundation-model ids and the
+     current system-defined cross-region inference-profile ids only — not application inference
+     profiles or other forms.
+- [x] **Direct tests (test suggestion).** `backend/test/bedrockResources.test.ts` (8 cases): bare
+     id → one foundation-model ARN; profile → profile ARN + region-wildcarded base-model ARN;
+     base-model dots preserved; `us.` vs `us-gov.` disambiguation; matching pair passes; bare id
+     never throws; mismatch throws naming region/prefix/key; error suggests the right prefix. The
+     stack calls the one helper for both Lambdas, so covering it covers both routes' policy shape
+     — chose this over a `Template.fromStack` synth test since that triggers `NodejsFunction`
+     esbuild bundling and `npm test` is deliberately build-dependency-free (that's what
+     `test:integration` is for).
+
+backend 25/25 (17 + 8 new), agents 17/17, frontend 102/102. `cdk synth` clean.

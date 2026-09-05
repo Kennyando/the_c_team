@@ -14,6 +14,7 @@ import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as path from "path";
+import { bedrockInvokeResources, assertModelRegionMatch } from "./bedrockResources";
 
 export interface KakiMahjongStackProps extends cdk.StackProps {
   envName: string;
@@ -180,22 +181,19 @@ export class KakiMahjongStack extends cdk.Stack {
     // model (e.g. an Anthropic Claude Haiku id) if your Bedrock access differs.
     const bedrockModelId = (this.node.tryGetContext("bedrockModelId") as string) || "us.amazon.nova-micro-v1:0";
 
-    // bedrock:InvokeModel resource ARNs for a model id or a cross-region
-    // inference profile id. A profile (prefix `us.` / `eu.` / `apac.` /
-    // `us-gov.`) needs permission on both the profile itself and every
-    // regional copy of the base model it can route to — region-wildcarded
-    // here, still scoped to the one model id. A bare model id just needs the
-    // one foundation-model ARN (which carries no account segment).
-    const bedrockInvokeResources = (modelOrProfileId: string): string[] => {
-      const profile = modelOrProfileId.match(/^(?:us|eu|apac|us-gov)\.(.+)$/);
-      if (!profile) {
-        return [`arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${modelOrProfileId}`];
-      }
-      return [
-        `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}:${this.account}:inference-profile/${modelOrProfileId}`,
-        `arn:${cdk.Aws.PARTITION}:bedrock:*::foundation-model/${profile[1]}`,
-      ];
-    };
+    // Fail synth (not runtime) if a cross-region inference-profile id doesn't match the deploy
+    // region — the region is independently overridable via CDK_DEFAULT_REGION, the model default
+    // isn't derived from it. `bin/app.ts` always sets a concrete region; guard anyway.
+    const region = this.region;
+    if (!cdk.Token.isUnresolved(region)) {
+      assertModelRegionMatch(region, bedrockModelId, "bedrockModelId");
+    }
+
+    // bedrock:InvokeModel resource ARNs — see backend/lib/bedrockResources.ts. Handles a plain
+    // foundation-model id and the current system-defined cross-region inference-profile ids
+    // (`us.` / `eu.` / `apac.` / `us-gov.` prefixes); nothing else.
+    const invokeResources = (modelOrProfileId: string) =>
+      bedrockInvokeResources(cdk.Aws.PARTITION, this.region, this.account, modelOrProfileId);
 
     // Cost guardrails: Bedrock is pay-per-call with no free tier, and this
     // route needs no credentials to hit (see the throttled HttpStage below),
@@ -226,7 +224,7 @@ export class KakiMahjongStack extends cdk.Stack {
     classifyIntentFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:InvokeModel"],
-        resources: bedrockInvokeResources(bedrockModelId),
+        resources: invokeResources(bedrockModelId),
       }),
     );
 
@@ -237,6 +235,9 @@ export class KakiMahjongStack extends cdk.Stack {
     // with `-c agentModelId=us.amazon.nova-lite-v1:0` (or a Claude Haiku id) if review prose
     // needs to be richer once it's been tested — match the deploy region's profile prefix.
     const agentModelId = (this.node.tryGetContext("agentModelId") as string) || bedrockModelId;
+    if (!cdk.Token.isUnresolved(region)) {
+      assertModelRegionMatch(region, agentModelId, "agentModelId");
+    }
 
     const reviewHandFn = new lambdaNode.NodejsFunction(this, "ReviewHandFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -252,7 +253,7 @@ export class KakiMahjongStack extends cdk.Stack {
     reviewHandFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:InvokeModel"],
-        resources: bedrockInvokeResources(agentModelId),
+        resources: invokeResources(agentModelId),
       }),
     );
 

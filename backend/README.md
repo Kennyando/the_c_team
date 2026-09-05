@@ -111,8 +111,11 @@ model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
 if you deploy to eu-*, `apac.…` for ap-*), a bigger Nova (`us.amazon.nova-lite-v1:0`),
 or a single-region model such as an Anthropic Claude Haiku id. `-c agentModelId=`
 does the same for the post-hand review route independently. The `bedrock:InvokeModel`
-IAM policy adapts automatically: a profile id gets the profile ARN plus the
-region-wildcarded base-model ARN, a bare id gets just the one foundation-model ARN.
+IAM policy adapts automatically (`lib/bedrockResources.ts`): a profile id gets the
+profile ARN plus the region-wildcarded base-model ARN, a bare id gets just the one
+foundation-model ARN. A cross-region profile whose `us.` / `eu.` / `apac.` prefix
+doesn't match the deploy region **fails `cdk synth`** with a fix hint, rather than
+deploying an IAM config that only breaks on the first Bedrock call.
 
 ### The intent catalogue is backend-owned, not client-supplied
 
