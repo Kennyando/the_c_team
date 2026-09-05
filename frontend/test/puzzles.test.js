@@ -33,6 +33,29 @@ test('an ordinary hand becomes a puzzle matching bestDiscard() directly', () => 
   assert.deepEqual(puzzle.reasons, rec.reasons);
 });
 
+// --- difficulty ---------------------------------------------------------------------------
+//
+// Difficulty is the number of distinct tiles tied for the single best resulting shanten
+// (`tieCount`), not the shanten gap to the closest wrong tile — that gap is always exactly 1
+// regardless of the hand (checked against 20,000 randomly generated hands before choosing this
+// metric), so it carries no signal. Fewer ties means the right answer stands out sharply (hard);
+// more ties means several discards are all correct (easy).
+
+test('a hand ready to win, with only one dead tile, is a hard puzzle — the best discard is unique', () => {
+  // Same hand as above: b9 touches nothing and is the *only* tile that keeps the hand ready.
+  const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
+  const puzzle = tryDiscardPuzzle(hand);
+  assert.equal(puzzle.tieCount, 1);
+  assert.equal(puzzle.difficulty, 'hard');
+});
+
+test('a scattered, far-from-ready hand with many equally fine discards is an easy puzzle', () => {
+  const hand = ['d1', 'd4', 'd8', 'd9', 'b1', 'b1', 'b2', 'b6', 'c4', 'c8', 'we', 'ww', 'dr', 'dw'];
+  const puzzle = tryDiscardPuzzle(hand);
+  assert.equal(puzzle.tieCount, 11);
+  assert.equal(puzzle.difficulty, 'easy');
+});
+
 test('checkDiscardAnswer accepts the puzzle\'s own best tile', () => {
   const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
   const puzzle = tryDiscardPuzzle(hand);
@@ -68,5 +91,15 @@ test('generateDiscardPuzzle() always returns a well-formed puzzle or null', () =
     assert.equal(puzzle.hand.length, 14);
     assert.ok(puzzle.hand.every((t) => !isBonus(t)), 'a puzzle hand should never contain a bonus tile');
     assert.ok(puzzle.hand.includes(puzzle.bestTile), 'the best tile must actually be in the hand');
+  }
+});
+
+test('generateDiscardPuzzle(difficulty) always returns a puzzle of the requested tier', () => {
+  for (const difficulty of ['easy', 'medium', 'hard']) {
+    for (let i = 0; i < 20; i++) {
+      const puzzle = generateDiscardPuzzle(difficulty);
+      assert.ok(puzzle, `should find an '${difficulty}' puzzle within the retry budget`);
+      assert.equal(puzzle.difficulty, difficulty);
+    }
   }
 });

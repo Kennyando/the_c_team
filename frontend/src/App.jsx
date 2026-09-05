@@ -57,6 +57,10 @@ export default function App() {
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showPuzzle, setShowPuzzle] = useState(false);
+  // Lifted here (rather than into Puzzle.jsx's own state) so it survives closing and reopening the
+  // panel — Puzzle.jsx unmounts every time showPuzzle goes false, but progress should only reset on
+  // a full page reload, same as the rest of this app's in-memory-only state.
+  const [puzzleProgress, setPuzzleProgress] = useState({ tier: 'easy', correctInTier: 0 });
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -200,7 +204,13 @@ export default function App() {
         />
       )}
 
-      {showPuzzle && <Puzzle onClose={() => setShowPuzzle(false)} />}
+      {showPuzzle && (
+        <Puzzle
+          progress={puzzleProgress}
+          setProgress={setPuzzleProgress}
+          onClose={() => setShowPuzzle(false)}
+        />
+      )}
 
       {state.phase === 'over' && !showSettings && !showPuzzle && (
         <ScoreSheet result={state.result} players={state.players} onNewHand={newHand} />

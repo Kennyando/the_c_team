@@ -1119,3 +1119,72 @@ they already handled `showSettings`, so opening a puzzle mid-turn can't race wit
    frontend suite is at 77 after this and the two prior PRs) — pre-existing drift from before this
    round, not something introduced here. Left alone rather than recounting the whole paragraph as a
    side effect of an unrelated task; worth a dedicated pass if it keeps drifting.
+
+# Difficulty-ranked, progressive discard puzzles (closes Known limit #2 above)
+
+Full design plan (with the empirical validation behind the difficulty metric) is at
+`C:\Users\kenna\.claude\plans\open-rank-the-puzzles-drifting-lerdorf.md`. Summary here for the
+project record.
+
+The user asked to rank generated puzzles by "closeness of the tile's ranking in the shanten
+calculator," group them, and let a player progress from easy to hard. Before writing any code, I
+validated the obvious metric — the shanten gap between the best discard and the closest wrong one —
+against the real calculator across 20,000 randomly generated hands, and found it has **zero
+variance**: that gap is exactly 1 every single time, a structural property of shanten under
+single-tile removal. Switched (confirmed with the user) to **how many distinct tiles are exactly
+tied for the single best resulting shanten** — fewer ties means the right answer is sharply
+distinguished (hard), more ties means several discards are equally correct (easy) — which does
+produce a real, data-backed spread.
+
+## Todo
+
+- [x] 1. `frontend/src/game/puzzles.js` — `tryDiscardPuzzle` computes `tieCount` (replacing the old
+     separate `allTie` check with the same loop) and derives `difficulty` (`'hard'` ≤4, `'medium'`
+     ≤7, else `'easy'` — thresholds from real percentile cuts, not guessed)
+- [x] 2. `frontend/src/game/puzzles.js` — `generateDiscardPuzzle(difficulty)` retries (60x for a
+     specific tier vs. 20x unfiltered) until it finds one of the requested difficulty, falling back
+     to any valid puzzle rather than `null` if the tier truly never comes up
+- [x] 3. `frontend/test/puzzles.test.js` — new difficulty tests, using concrete hands with a
+     verified `tieCount` (a ready hand with one dead tile → hard; a scattered, far-from-ready hand
+     → easy) rather than a hardcoded difficulty label alone
+- [x] 4. `frontend/src/App.jsx` — `puzzleProgress` (`{ tier, correctInTier }`) lifted into App
+     state (not `Puzzle.jsx`'s own, since that component unmounts every time the panel closes) and
+     passed down
+- [x] 5. `frontend/src/components/Puzzle.jsx` — generates with the current tier, shows
+     "Easy · 1 / 3 solved"-style progress, advances `easy → medium → hard` (capped at `hard`) after
+     3 correct answers at a tier; a wrong answer doesn't move the counter
+
+## Review
+
+### What was built
+
+Exactly per the approved plan. The difficulty metric lives entirely inside `puzzles.js`; `App.jsx`
+and `Puzzle.jsx` only needed to thread a `difficulty` string through to `generateDiscardPuzzle()`
+and track/display progress — no changes to `advisor.js` (the coach's `bestDiscard()` is untouched,
+so the live coach and decision log are unaffected).
+
+### Test plan
+
+- `cd frontend && npm test` — 80/80 pass (77 previous + 3 new: two difficulty-assignment tests, one
+  difficulty-filtered-generation test; the two existing degenerate-rejection tests re-verified
+  since their logic was consolidated with the new `tieCount` computation, not just added alongside).
+- `cd frontend && npm run build` — exit 0.
+- Manual browser smoke test of the full progression, matching the plan's verification section
+  exactly: opened the panel (confirmed "Easy · 0 / 3 solved"), answered 3 puzzles correctly across
+  fresh "New puzzle" draws (confirmed the counter incrementing 0→1→2, then the tier flipping to
+  "Medium · 0 / 3 solved" on the 3rd), answered one incorrectly at Medium (confirmed "Not quite" —
+  the best tile named — and the counter *not* moving), closed and reopened the panel (confirmed the
+  tier/count survived, still "Medium · 1 / 3 solved"), and reloaded the page (confirmed it reset to
+  "Easy · 0 / 3 solved"). No console errors at any point.
+
+### Known limits
+
+1. **Tier thresholds are a first cut from simulation data, not from real play.** `tieCount <= 4` /
+   `<= 7` splits ~20,000 sampled hands into roughly 17% / 48% / 35% hard/medium/easy — reasonable
+   and non-degenerate, but not tuned against how a puzzle actually *feels* to solve.
+2. **No completion state once `hard` is reached.** Further correct answers at `hard` just keep
+   resetting the counter toward another `hard` puzzle — there's no "you've mastered this" moment,
+   by design for this round (kept simple; flagged in the plan, not discovered after the fact).
+3. **Progress is a single global track, not per-puzzle-type.** Only discard puzzles exist today, so
+   this doesn't matter yet, but a future claim-puzzle mode would need its own decision about whether
+   it shares this progress track or gets its own.
