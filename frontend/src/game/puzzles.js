@@ -69,32 +69,43 @@ export function tryDiscardPuzzle(hand) {
 
 /**
  * Draw a random hand and turn it into a puzzle, retrying a bounded number of times against the
- * degenerate cases above. Returns `null` only in the astronomically unlikely case that every
- * attempt is degenerate — callers can just ask again.
+ * degenerate cases above. Returns `null` if nothing valid turns up within the retry budget —
+ * callers can just ask again.
  *
- * Pass `difficulty` ('easy' | 'medium' | 'hard') to keep retrying until a puzzle of that tier
- * turns up. If the target tier never comes up within the retry budget (vanishingly unlikely — the
- * rarest tier is still ~17% of hands), falls back to the first valid puzzle found of *any*
- * difficulty rather than giving up outright.
+ * Pass `difficulty` ('easy' | 'medium' | 'hard') to keep retrying until a puzzle of that exact
+ * tier turns up. A returned puzzle's `difficulty` always matches what was requested — this never
+ * falls back to a different tier, since callers (the progression UI) label the puzzle using the
+ * difficulty they asked for, and a puzzle silently of a different tier would mean that label lies.
+ * The rarest tier is still ~17% of hands, so `RETRIES_FOR_DIFFICULTY` clears it >99.999% of the
+ * time; returning `null` on the remaining sliver is a truthful "try again," not a wrong answer.
  */
 export function generateDiscardPuzzle(difficulty) {
-  let fallback = null;
   const retries = difficulty ? RETRIES_FOR_DIFFICULTY : RETRIES;
   for (let i = 0; i < retries; i++) {
     const puzzle = tryDiscardPuzzle(randomHand());
-    if (!puzzle) continue;
-    if (!difficulty || puzzle.difficulty === difficulty) return puzzle;
-    fallback ||= puzzle;
+    if (puzzle && (!difficulty || puzzle.difficulty === difficulty)) return puzzle;
   }
-  return fallback;
+  return null;
 }
 
-/** Check an answer against a puzzle. Mirrors engine.js's own `recordDiscardDecision`: comparing
+/**
+ * Check an answer against a puzzle. Mirrors engine.js's own `recordDiscardDecision`: comparing
  * the resulting shanten directly, not membership in bestDiscard()'s (UI-oriented, truncated)
- * `alternatives` list, so a multi-way tie is never misjudged as a mistake. */
+ * `alternatives` list, so a multi-way tie is never misjudged as a mistake.
+ *
+ * "Correct" means shanten-optimal, not necessarily the single best mahjong play: a tie in
+ * resulting shanten can still differ in how many tiles would complete the hand from there
+ * (ukeire), which this doesn't account for — matching the same limit `bestDiscard()` in
+ * advisor.js already has.
+ */
 export function checkDiscardAnswer(puzzle, chosenTile) {
   const rest = [...puzzle.hand];
-  rest.splice(rest.indexOf(chosenTile), 1);
+  const index = rest.indexOf(chosenTile);
+  // A tile that isn't actually in the hand isn't a wrong answer to grade — it's not an answer at
+  // all. The current UI only ever passes a tile from puzzle.hand, but this is an exported function
+  // and indexOf()'s -1 would otherwise silently splice the *last* tile and grade that instead.
+  if (index === -1) return { correct: false, shantenAfterChosen: null };
+  rest.splice(index, 1);
   const shantenAfterChosen = shanten(rest, []);
   return { correct: shantenAfterChosen === puzzle.shantenAfterBest, shantenAfterChosen };
 }

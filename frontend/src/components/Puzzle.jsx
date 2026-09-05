@@ -9,9 +9,11 @@ const TIER_LABELS = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 const ANSWERS_TO_ADVANCE = 3;
 
 /**
- * Discard puzzles: a frozen hand with a genuine best discard, checked against the same
- * bestDiscard()/shanten() logic the live coach and the decision log use — so a puzzle's answer
- * can never disagree with what the coach would say about the same hand mid-game.
+ * Discard puzzles: a frozen hand with a discard that's provably closest to winning, checked
+ * against the same bestDiscard()/shanten() logic the live coach and the decision log use — so a
+ * puzzle's answer can never disagree with what the coach would say about the same hand mid-game.
+ * "Closest to winning" means shanten-optimal, not necessarily the single best mahjong play — see
+ * the caveat on checkDiscardAnswer() in puzzles.js.
  *
  * `progress`/`setProgress` are lifted into App.jsx rather than kept here, since this component
  * unmounts every time the panel closes — progress should only reset on a full page reload, not on
@@ -72,7 +74,7 @@ export default function Puzzle({ progress, setProgress, onClose }) {
                 <p><strong>{answer.correct ? 'Correct!' : 'Not quite.'}</strong></p>
                 {!answer.correct && (
                   <p className="hint">
-                    {tileName(puzzle.bestTile)} was the best discard.{puzzle.reasons[0] ? ` ${puzzle.reasons[0]}` : ''}
+                    {tileName(puzzle.bestTile)} keeps you closest to winning.{puzzle.reasons[0] ? ` ${puzzle.reasons[0]}` : ''}
                   </p>
                 )}
               </div>

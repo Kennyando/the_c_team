@@ -75,6 +75,17 @@ test('checkDiscardAnswer accepts a tile tied with the best one, not just the bes
   assert.equal(answer.correct, true);
 });
 
+test('checkDiscardAnswer rejects a tile that is not actually in the hand', () => {
+  // Regression: indexOf() returns -1 for an unknown tile, and splice(-1, 1) would otherwise
+  // silently remove the *last* tile in the hand and grade that instead of rejecting the input.
+  const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
+  const puzzle = tryDiscardPuzzle(hand);
+  const answer = checkDiscardAnswer(puzzle, 'dg'); // not in the hand at all
+
+  assert.equal(answer.correct, false);
+  assert.equal(answer.shantenAfterChosen, null);
+});
+
 test('checkDiscardAnswer rejects a tile that leaves a worse shanten', () => {
   const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
   const puzzle = tryDiscardPuzzle(hand);

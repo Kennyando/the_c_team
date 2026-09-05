@@ -1188,3 +1188,78 @@ so the live coach and decision log are unaffected).
 3. **Progress is a single global track, not per-puzzle-type.** Only discard puzzles exist today, so
    this doesn't matter yet, but a future claim-puzzle mode would need its own decision about whether
    it shares this progress track or gets its own.
+
+# PR #6 review fixes (round 2)
+
+Three comments on the difficulty/progression work:
+
+1. `checkDiscardAnswer()` used `indexOf()` without checking for `-1` — a tile not in the puzzle's
+   hand would `splice(-1, 1)` and silently grade the *last* tile in the hand instead of rejecting
+   the input. Not reachable through today's UI (it only ever passes a tile from `puzzle.hand`), but
+   it's an exported game-layer function, so the invariant needed to be explicit.
+2. `generateDiscardPuzzle(difficulty)`'s fallback (return any valid puzzle if the requested tier
+   never turns up) meant a returned puzzle's `difficulty` wasn't actually guaranteed to match what
+   was asked for — and `Puzzle.jsx` labels the puzzle using the *requested* tier, not the puzzle's
+   own, so a fallback could show "Hard" while serving an Easy puzzle. Now user-facing progression
+   state, so a silent mismatch is worse than it looked when this was still an internal-only detail.
+3. Learner-facing wording ("best discard") overstated what's actually checked — equal shanten
+   doesn't guarantee equal hand quality (ties can differ in how many tiles would complete the hand
+   from there, i.e. ukeire, which nothing here accounts for).
+
+## Todo
+
+- [x] 1. `frontend/src/game/puzzles.js` — `checkDiscardAnswer` returns
+     `{ correct: false, shantenAfterChosen: null }` for a tile not in `puzzle.hand`, instead of
+     evaluating whatever `splice(-1, 1)` happens to remove
+- [x] 2. `frontend/src/game/puzzles.js` — `generateDiscardPuzzle(difficulty)` drops the fallback
+     entirely: returns `null` if the requested tier isn't found within the retry budget, so a
+     non-null result's `difficulty` always matches what was asked for
+- [x] 3. `frontend/src/components/Puzzle.jsx` — reworded the doc comment and the wrong-answer
+     message from "best discard" to "keeps you closest to winning" (matching `adviceDiscard`'s own
+     existing phrasing in `coach.js`, not new jargon), plus a code comment on `checkDiscardAnswer`
+     noting the shanten-optimal-not-holistic-optimal caveat directly
+- [x] 4. `frontend/test/puzzles.test.js` — regression test for an out-of-hand tile
+
+## Review
+
+### What was fixed
+
+**#1 and #2** were both small, mechanical fixes with an obvious correct answer, so implemented as
+described without further design discussion. For #2, removing the fallback was the reviewer's own
+preferred option (over having the UI treat a fallback as an explicitly different tier) since it's
+*less* code than what was there — the existing `!puzzle` UI branch ("Could not put together a
+puzzle just now") already handles a `null` result, so no new UI path was needed either.
+
+**#3**: reworded `Puzzle.jsx`'s doc comment and its wrong-answer text to "keeps you closest to
+winning" rather than "best discard" — deliberately reusing language `advisor.js`'s own
+`bestDiscard()` comment already uses ("the tile whose loss keeps you closest to winning"), rather
+than inventing new phrasing or introducing raw "shanten" jargon into learner-facing text (this
+app's existing coach UI never surfaces the word "shanten" to a player either — `describeDistance()`
+in `advisor.js` always renders it as "N tiles from winning"). Did **not** rename `advisor.js`'s
+exported `bestDiscard()` function or touch any of the live coach's own wording (`Coach.jsx`,
+`coach.js`) — the reviewer's comment was specifically about the new learner-facing puzzle text, and
+renaming the coach's established terminology across the rest of the app would be a much larger,
+unrelated change nobody asked for.
+
+### Test plan
+
+- `cd frontend && npm test` — 81/81 pass (80 previous + 1 new: the out-of-hand-tile regression).
+- `cd frontend && npm run build` — exit 0.
+- Manual browser check of the reworded wrong-answer text specifically (not just a re-run of the
+  earlier progression smoke test): triggered a wrong answer and confirmed the dialog reads
+  "East Wind keeps you closest to winning. It is a lone wind or dragon..." — the reasons text
+  itself was untouched, only the discard-naming sentence in front of it changed. No console errors.
+
+### Known limits
+
+1. **`generateDiscardPuzzle(difficulty)` returning `null` is still not covered by a dedicated
+   test** — doing so deterministically would need injecting the hand generator for testability,
+   which felt like more machinery than a <0.001%-probability edge case warrants right now. The
+   existing property-based test (calls it 20× per tier) covers the happy path; the code change
+   itself (removing the silent fallback) is what actually closes the reviewer's concern, independent
+   of what the test can prove.
+2. **Ukeire (improving-tile count) is still not used to break same-shanten ties**, as the reviewer
+   noted — `checkDiscardAnswer()`'s "correct" remains shanten-optimal, not holistic-play-optimal.
+   Now documented in code and in the UI's own wording rather than implied by stronger language than
+   the check actually performs; using ukeire as a tiebreak is real follow-up work, not attempted
+   here.
