@@ -2,6 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { tileName } from '../src/game/tiles.js';
 import { newGame, discardTile } from '../src/game/engine.js';
@@ -235,6 +236,19 @@ test('askWithModel degrades to the plain local fallback with no classifier endpo
   const answer = await askWithModel('what is the weather like', s);
   assert.equal(answer.intent, 'fallback');
   assert.deepEqual(answer, ask('what is the weather like', s));
+});
+
+test("coach.js's intents never drift from the backend's classifier catalogue", () => {
+  // backend/shared/intents.json is what classifyIntent.ts actually sends to Bedrock — it is a
+  // separate file in a separate (TypeScript) package, so nothing forces it to track INTENTS here
+  // automatically. This is the tripwire: if someone adds, removes or renames an intent on one side
+  // and forgets the other, this fails instead of the drift silently degrading coach answers.
+  const catalogue = JSON.parse(
+    readFileSync(new URL('../../backend/shared/intents.json', import.meta.url), 'utf8'),
+  );
+  const catalogueIds = catalogue.map((i) => i.id).sort();
+  const localIds = INTENTS.map((i) => i.id).sort();
+  assert.deepEqual(catalogueIds, localIds);
 });
 
 test('the situation hint follows the turn', () => {

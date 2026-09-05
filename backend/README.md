@@ -71,6 +71,9 @@ lambda/mahjong/tiles.ts    Tile encoding + human-readable parsing
 lambda/mahjong/shanten.ts  Distance-to-win calculator
 lambda/mahjong/advisor.ts  Legal-call detection + discard recommendation
 lambda/mahjong/sanity-test.ts  Standalone tests for the above (not deployed)
+shared/intents.json        The classifier's intent catalogue — see below
+test/classifyIntent.test.ts             Unit tests (mocked Bedrock, no real AWS calls)
+test/integration.coach-classifier.test.mjs  Cross-package smoke test — see Testing below
 ```
 
 ## Help-coach fallback classifier
@@ -79,7 +82,8 @@ lambda/mahjong/sanity-test.ts  Standalone tests for the above (not deployed)
 (`frontend/src/game/coach.js`). The coach is otherwise fully local — no
 network, no API key (see `frontend/docs`) — and stays that way for every
 question its own keyword patterns recognise. Only when a typed question
-matches none of them does the frontend POST it to this route.
+matches none of them does the frontend POST `{ question }` to this route —
+nothing else.
 
 This is deliberately a plain HTTP API (`CoachApi`), not a new WebSocket
 route: classifying one string needs no room, no connection, no game state,
@@ -87,21 +91,60 @@ so it would be pure overhead to require joining a multiplayer session just
 to ask for help.
 
 The Lambda calls Amazon Bedrock (`amazon.nova-micro-v1:0` by default — cheap
-and fast, right-sized for a one-word classification task) with the coach's
-own current list of intent ids and a one-line hint for each, and asks it to
-return exactly one of those ids, or `fallback`. **The model never writes
-what the player reads** — it only picks which of the coach's existing,
-locally-computed answer functions to call, so none of the accuracy
-guarantees in `docs/mvp-notes.md` (correct by construction, aware of this
-table's own house rules) are weakened. Any failure — Bedrock unavailable,
-model access not granted, a timeout, an id we don't recognise — is treated
-identically to "no match" and the coach's own local fallback answer is used
-instead; the coach never breaks, and works with zero backend deployed at
-all if `frontend/.env.template`'s `VITE_CLASSIFY_INTENT_URL` is left blank.
+and fast, right-sized for a one-word classification task) with its own
+intent catalogue (`shared/intents.json`, imported at build time — see below)
+and asks it to return exactly one of those ids, or `fallback`. **The model
+never writes what the player reads** — it only picks which of the coach's
+existing, locally-computed answer functions to call, so none of the
+accuracy guarantees in `docs/mvp-notes.md` (correct by construction, aware
+of this table's own house rules) are weakened. Any failure — Bedrock
+unavailable, model access not granted, a timeout, an id we don't recognise —
+is treated identically to "no match" and the coach's own local fallback
+answer is used instead; the coach never breaks, and works with zero backend
+deployed at all if `frontend/.env.template`'s `VITE_CLASSIFY_INTENT_URL` is
+left blank.
 
 Swap the model with `npx cdk deploy -c bedrockModelId=<another Bedrock model id>`
 if your account's model access differs (e.g. an Anthropic Claude Haiku model
 on Bedrock instead of Nova Micro).
+
+### The intent catalogue is backend-owned, not client-supplied
+
+An earlier version of this route accepted the intent list — including a
+free-text "hint" per intent — from the request body, so it could be kept in
+sync with whatever `coach.js` currently supports. That meant an untrusted
+caller could put arbitrary text into the Bedrock prompt via the hint field.
+`shared/intents.json` fixes that: it's the one file both sides read, so
+there's still a single source of truth, but the backend now owns it —
+`classifyIntent.ts` imports it at build time (bundled directly into the
+Lambda by esbuild; `tsconfig.json`'s `resolveJsonModule` makes the same
+import type-check), and the request carries nothing but the question.
+`frontend/test/coach.test.js` has a test that fails if `coach.js`'s own
+intent ids and this file's ever drift apart, so the two can't silently
+disagree.
+
+### This endpoint takes no credentials — throttling is the actual defense
+
+`classify-intent` has no auth check, by design: requiring a signed-in user
+for "what does pong do, phrased unusually" is disproportionate for a
+same-table coach, and this project has no sign-in flow wired up yet either.
+That means anything bounding cost has to sit in front of the model call
+itself, not in an auth check:
+
+- **API Gateway throttling** on `CoachApi`'s stage — `rateLimit: 2` req/s,
+  `burstLimit: 5` by default. Override with `-c coachApiRateLimit=` /
+  `-c coachApiBurstLimit=` if a real demo needs more headroom.
+- **Reserved concurrency of 2** on `ClassifyIntentFn` — a hard ceiling on how
+  many invocations can run at once, independent of the throttle above.
+  Override with `-c coachApiConcurrency=`.
+
+Both are deliberately conservative for a hackathon project on a small
+Bedrock budget. If this ever needs real per-user identity (rate limits per
+player rather than per deployment, for instance), the `UserPool` this stack
+already provisions is the natural next step — a JWT authorizer on this
+route — but that also means building a sign-in flow into the frontend,
+which is out of scope for what is currently a single-player, no-accounts
+MVP (see `docs/mvp-notes.md`'s known simplifications).
 
 ## Prerequisites
 
@@ -164,6 +207,39 @@ via `aws cloudformation describe-stacks`):
    the legal calls, a recommended discard, and a spoken narration URL along
    the lines of *"Ah Kong discards 5-dot. You can call pong or kong on this
    tile."*
+
+## Testing
+
+```bash
+npm test              # unit tests — mocked Bedrock, no AWS calls, no deploy needed
+npm run test:integration  # builds, then runs the cross-package smoke test
+```
+
+`npm test` runs `classifyIntent.test.ts` via `node`'s built-in test runner
+(`ts-node/register` for the TypeScript, same `node:test` + `assert/strict`
+convention the frontend suite uses — no new test framework). Every test
+mocks `BedrockRuntimeClient.prototype.send`, so none of them touch the
+network or cost anything, and they cover: malformed JSON, a missing /
+empty / non-string / oversized question, a client trying to smuggle its own
+intent list back in (regression test for the prompt-injection fix), a valid
+request, and every way Bedrock could misbehave — an unrecognised id, the
+literal `fallback`, extra words around a valid id, mixed case, an empty or
+missing content block, a thrown exception, and a permissions failure —
+checking each one degrades to a plain `{ intent: "fallback" }` response
+rather than an error.
+
+`npm run test:integration` (`backend/test/integration.coach-classifier.test.mjs`)
+builds the backend, then imports the compiled Lambda alongside the real
+frontend `askWithModel()` and wires the coach's `fetch()` straight into the
+handler in-process — no HTTP server, no real network, Bedrock still mocked.
+It's the one place that actually proves the two packages agree on the
+request/response shape rather than each side just being internally
+consistent with its own tests: one case mocks Bedrock returning `rules.kong`
+and checks the coach ends up showing the real local kong answer; the other
+mocks Bedrock throwing and checks the coach ends up with its ordinary local
+fallback, not an error. Kept separate from `npm test` (in both packages)
+specifically so the default test command never has a cross-package build
+dependency.
 
 ## Cost notes
 

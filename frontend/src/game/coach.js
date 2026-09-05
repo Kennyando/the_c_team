@@ -301,43 +301,29 @@ export const STATIC_ANSWERS = STATIC;
 // docs/mvp-notes.md's known-limitation #7 names: "keep the local answers and use a model only to
 // interpret the question."
 
-/** One-line hints so a small classifier model knows what each intent id is asking about. */
-const INTENT_HINTS = {
-  'advice.discard': 'asking which tile to discard right now',
-  'advice.claim': 'asking whether to call pong, chow or kong on the tile just discarded',
-  'advice.progress': 'asking how close their hand is to winning, or what they are waiting on',
-  'advice.value': 'asking how many tai, or how much, their hand would score',
-  'rules.limit': 'asking about the limit hand or the maximum a hand can score',
-  'rules.tai': 'asking about tai scoring or how payouts work',
-  'rules.table': 'asking what house rules this table is playing under',
-  'rules.wall': 'asking about the wall, tiles left, or a draw game',
-  'rules.seat': 'asking about their seat wind or the prevailing wind',
-  'rules.dealer': 'asking about the dealer or banker',
-  'rules.pong': 'asking what pong means or how it works',
-  'rules.chow': 'asking what chow means or how it works',
-  'rules.kong': 'asking what kong means or how it works',
-  'rules.win': 'asking what counts as a winning hand',
-  'rules.flowers': 'asking about flower or season bonus tiles',
-  'rules.concealed': 'asking about concealed versus exposed melds',
-};
-
 // import.meta.env only exists under Vite; plain Node (the test runner) leaves it undefined, so
 // this is unconfigured — and askWithModel falls straight back to ask() — in every test.
 const CLASSIFY_INTENT_URL = import.meta.env?.VITE_CLASSIFY_INTENT_URL;
 const CLASSIFY_TIMEOUT_MS = 4000;
 
-/** Calls the backend classifier. Never throws: any failure is reported as `null`. */
-async function classifyIntentRemote(question) {
-  if (!CLASSIFY_INTENT_URL) return null;
+/**
+ * Calls the backend classifier. Never throws: any failure is reported as `null`.
+ *
+ * The request carries only the question — nothing else. The backend owns the intent catalogue
+ * (backend/shared/intents.json) and builds its own prompt from it; this used to also send the
+ * intent list and a free-text "hint" per intent, which let an untrusted caller inject arbitrary
+ * text straight into the Bedrock prompt. Sending less is both the fix and the smaller request.
+ */
+async function classifyIntentRemote(question, url) {
+  if (!url) return null;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CLASSIFY_TIMEOUT_MS);
   try {
-    const intents = INTENTS.map((i) => ({ id: i.id, hint: INTENT_HINTS[i.id] || i.id }));
-    const res = await fetch(CLASSIFY_INTENT_URL, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, intents }),
+      body: JSON.stringify({ question }),
       signal: controller.signal,
     });
     if (!res.ok) return null;
@@ -353,12 +339,16 @@ async function classifyIntentRemote(question) {
 /**
  * Route a question exactly like `ask()`, but escalate to the model classifier when — and only
  * when — the local patterns found nothing. Always resolves; never throws.
+ *
+ * `classifyUrl` defaults to the configured endpoint and only ever needs overriding in tests
+ * (frontend/test/integration/ wires it to a fake handler) — Coach.jsx always calls this with
+ * just the two arguments.
  */
-export async function askWithModel(question, state) {
+export async function askWithModel(question, state, { classifyUrl = CLASSIFY_INTENT_URL } = {}) {
   const local = ask(question, state);
   if (local.intent !== 'fallback') return local;
 
-  const intentId = await classifyIntentRemote(question);
+  const intentId = await classifyIntentRemote(question, classifyUrl);
   if (!intentId) return local;
 
   // Never trust the remote id blindly: only ever dispatch to an intent we actually know about.

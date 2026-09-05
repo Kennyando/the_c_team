@@ -175,6 +175,17 @@ export class KakiMahjongStack extends cdk.Stack {
     // model access differs.
     const bedrockModelId = (this.node.tryGetContext("bedrockModelId") as string) || "amazon.nova-micro-v1:0";
 
+    // Cost guardrails: Bedrock is pay-per-call with no free tier, and this
+    // route needs no credentials to hit (see the throttled HttpStage below),
+    // so two independent caps bound worst-case spend regardless of traffic:
+    // reserved concurrency hard-stops how many invocations can ever run at
+    // once (queued/throttled requests cost nothing), and the API Gateway
+    // throttle below caps the request rate before it even reaches Lambda.
+    // Both are intentionally conservative defaults for a hackathon demo —
+    // override with `-c coachApiConcurrency=`, `-c coachApiRateLimit=`,
+    // `-c coachApiBurstLimit=` if real usage needs more headroom.
+    const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
+
     const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
@@ -183,6 +194,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "classifyIntent.ts"),
       environment: { BEDROCK_MODEL_ID: bedrockModelId },
+      reservedConcurrentExecutions: coachApiConcurrency,
     });
 
     // Bedrock foundation-model ARNs carry no account segment (they are not
@@ -202,11 +214,26 @@ export class KakiMahjongStack extends cdk.Stack {
         allowMethods: [apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
         allowHeaders: ["content-type"],
       },
+      // No default stage here — created explicitly below so it can carry a
+      // throttle. This endpoint takes no credentials (see the module comment
+      // on classifyIntent.ts), so request-rate throttling is the actual
+      // barrier between "publicly reachable" and "unbounded Bedrock spend."
+      createDefaultStage: false,
     });
     httpApi.addRoutes({
       path: "/classify-intent",
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2i.HttpLambdaIntegration("ClassifyIntentIntegration", classifyIntentFn),
+    });
+
+    new apigwv2.HttpStage(this, "CoachApiDefaultStage", {
+      httpApi,
+      stageName: "$default", // keeps ClassifyIntentUrl's shape unchanged (no /{stage} segment)
+      autoDeploy: true,
+      throttle: {
+        rateLimit: Number(this.node.tryGetContext("coachApiRateLimit") ?? 2), // steady-state req/s
+        burstLimit: Number(this.node.tryGetContext("coachApiBurstLimit") ?? 5),
+      },
     });
 
     const webSocketApi = new apigwv2.WebSocketApi(this, "GameSocketApi", {

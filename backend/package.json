@@ -5,8 +5,10 @@
     "kaki-mahjong-backend": "dist/bin/app.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-shared-assets.js",
     "watch": "tsc -w",
+    "test": "node -r ts-node/register --test test/*.test.ts",
+    "test:integration": "npm run build && node --test test/integration.*.test.mjs",
     "synth": "cdk synth",
     "deploy": "cdk deploy",
     "diff": "cdk diff",

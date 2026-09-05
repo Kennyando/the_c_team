@@ -196,7 +196,11 @@ These are deliberate MVP boundaries, not defects:
    exactly that case to a Bedrock-backed classifier (`backend/lambda/classifyIntent.ts`, deployed
    separately) which picks which *existing* local answer fits — the model never writes what the
    player reads, so the accuracy guarantees above are unchanged. Optional: with no backend deployed
-   (`VITE_CLASSIFY_INTENT_URL` unset), the coach behaves exactly as before, 100% local.
+   (`VITE_CLASSIFY_INTENT_URL` unset), the coach behaves exactly as before, 100% local. The route
+   takes no credentials (see `backend/README.md`'s "no credentials — throttling is the actual
+   defense" section), so it's deliberately rate-limited and concurrency-capped rather than
+   authenticated — appropriate for a same-table coach, but worth revisiting if this ever needs
+   real accounts.
 8. **Discard advice optimises for speed to a win, not defence.** It does not weigh how dangerous a
    tile is to throw, because the bots do not play to win off discards yet.
 
@@ -208,18 +212,26 @@ React Native packaging for iOS/Android.
 
 ## Testing
 
-`npm test` runs 58 cases. Twenty-one cover the rules — wall composition, the deal, win validation,
+`npm test` runs 59 cases. Twenty-one cover the rules — wall composition, the deal, win validation,
 each scoring pattern, the limit cap, ambiguous-hand readings, chow-only-from-the-left, claim
 priority, kong detection, seat winds and payouts. The other nine cover the tile artwork: that all 46
 distinct faces resolve, that each rank draws exactly that many pips, that no pip or cane overflows
-the tile or collides with its neighbour, and that no two ranks draw identically. Twenty-three
+the tile or collides with its neighbour, and that no two ranks draw identically. Twenty-four
 cover the help coach: the distance-from-winning maths against hand-built positions, discard and call
 advice, question routing (including that "should I pong this?" gets advice while "what does pong do?"
 gets the rule), that **every answer stays within the length budget** — the brevity requirement
-checked mechanically rather than by good intentions — and that `askWithModel()` matches `ask()`
-exactly both when a local pattern already fits and when no classifier endpoint is configured. Five
+checked mechanically rather than by good intentions — that `askWithModel()` matches `ask()`
+exactly both when a local pattern already fits and when no classifier endpoint is configured, and
+that `coach.js`'s intent ids never drift from `backend/shared/intents.json`, the classifier's own
+catalogue. Five
 more cover the table's wall ring: that it accounts for every tile, stays balanced across the four
 edges, thins as the wall is drawn, and never produces a negative or ragged ring.
+
+The backend has its own suite: `cd backend && npm test` runs 17 cases against the classify-intent
+Lambda (mocked Bedrock, no AWS calls) covering request validation and every way the model could
+misbehave, plus `npm run test:integration` — a cross-package smoke test proving `askWithModel()`
+and the real compiled Lambda actually agree on the request/response shape, not just that each
+side's own tests pass in isolation. See `backend/README.md`'s Testing section.
 
 The engine was additionally soak-tested over 3,000 complete bot-vs-bot hands, asserting on every
 single step that tiles are conserved (wall + hands + melds + flowers + discards = 144), that hand
