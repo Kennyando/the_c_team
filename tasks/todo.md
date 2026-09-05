@@ -983,3 +983,139 @@ is Thirteen Wonders, explicitly named in the rulebook (rules 18, 24j) but entire
 the current code. Seven pairs is not part of this ruleset and was correctly not requested for
 inclusion. Per the user's decision, no code changes were made for this — `docs/mvp-notes.md` known
 simplification #2 continues to document it as a deliberate, honest boundary rather than a defect.
+
+# Puzzle engine (step 2 toward the teaching agent)
+
+Step 2 of the three-part teaching agent the user asked for (the structured decision log was step 1,
+since `state.decisions` isn't consumed by anything yet — see "Planned: structured decision log"
+earlier in this file). A puzzle presents a single frozen position and checks whether the player finds the
+same answer `advisor.js` would give — reusing exactly the same functions the live coach and the
+decision log already use, so a puzzle's "correct answer" can never disagree with what the coach
+would say about the same hand mid-game.
+
+**Scope decision: discard puzzles only, not claim puzzles, for this increment.** Same reasoning as
+scoping the decision log to discard+claim together only because both were needed for that PR —
+here, a discard puzzle is the simpler, self-contained case (one hand, no other seats, no discard
+history), and a full puzzle UI/flow doesn't exist yet for either kind. Claim puzzles are a natural
+next step once this exists to build on, not a blocker to it.
+
+**Scope decision: a new pure module, not an extension of `engine.js`.** A puzzle is a single frozen
+hand with no other player, no wall, no turn order — none of `engine.js`'s state shape applies. It
+belongs alongside `advisor.js`/`bots.js` as another pure, testable `src/game/` module with no React
+import, per this codebase's existing layering (`docs/mvp-notes.md`'s "Game engine... no React
+imports anywhere").
+
+**Scope decision: generation draws from a real 136-tile set, filtered for two degenerate cases.**
+A puzzle needs a *checkable* answer, so: reject a hand that's already complete (shanten `-1` —
+nothing to discard toward) and reject a hand where every distinct tile leaves the same resulting
+shanten (no signal — any answer would be "correct", which teaches nothing). Both are checked with
+`shanten()` from `advisor.js`, unmodified. No further "how interesting is this" scoring — that's
+tuning that's easy to add later against real usage and not worth guessing at now.
+
+**Scope decision: separate the deterministic core from the random draw.** `shuffle()` in
+`tiles.js` calls `Math.random()` directly with no seed hook, so a puzzle generated from a truly
+random hand can't be asserted against in a test. Splitting `tryDiscardPuzzle(hand)` (pure,
+deterministic, exported for tests to hand a fixed hand to) from `generateDiscardPuzzle()` (draws a
+real random hand, retries a bounded number of times if `tryDiscardPuzzle` rejects it) means the
+interesting logic is fully unit-testable without needing to fake randomness, and the outer
+function stays a thin wrapper.
+
+## Todo
+
+- [x] 1. `frontend/src/game/puzzles.js` — new module:
+     - `tryDiscardPuzzle(hand)` — pure. Returns `null` for the two degenerate cases above, else
+       `{ hand, shantenBefore, bestTile, shantenAfterBest, reasons }` (`bestTile`/`shantenAfterBest`/
+       `reasons` straight from `bestDiscard()`, `shantenBefore` from `shanten()`)
+     - `generateDiscardPuzzle()` — draws a random 14-tile hand from a full standard 136-tile set
+       (no bonus tiles — a puzzle is a frozen hand, not a live deal with a wall to set them aside
+       into), retries up to 20 times against `tryDiscardPuzzle`, returns `null` on the
+       (astronomically unlikely) case all 20 are degenerate
+     - `checkDiscardAnswer(puzzle, chosenTile)` — `{ correct, shantenAfterChosen }`, `correct`
+       computed the same way `engine.js`'s `recordDiscardDecision` now does:
+       `shantenAfterChosen === puzzle.shantenAfterBest`
+- [x] 2. `frontend/test/puzzles.test.js` — new test file (unit tests below)
+- [x] 3. `frontend/src/components/Puzzle.jsx` — minimal UI (added after the user asked for one,
+     see "Scope change" below): a modal, styled like `Settings.jsx`'s `.backdrop`/`.dialog`, showing
+     a generated puzzle's hand as tappable `Tile`s; tapping one shows "Correct!"/"Not quite" plus
+     the best tile and its first reason when wrong; "New puzzle" draws another, "Back to the game"
+     closes without affecting the live game underneath
+- [x] 4. `frontend/src/App.jsx` — a "Puzzle" header button opening `Puzzle.jsx`; the bot/turn timer
+     effect and `Coach`/`ScoreSheet` visibility gated on `showPuzzle` exactly the way they already
+     were on `showSettings`, so a puzzle can't run concurrently with a live turn
+- [x] 5. `docs/mvp-notes.md` — one line under the existing `state.decisions` note (known
+     simplification #9) marking the puzzle engine as built, now including a minimal UI
+
+## Planned unit tests (`frontend/test/puzzles.test.js`)
+
+- `tryDiscardPuzzle` returns `null` for an already-complete (winning) hand.
+- `tryDiscardPuzzle` returns `null` for a hand where every discard leaves the same shanten (a hand
+  of, e.g., all distinct isolated honours with no structure to protect).
+- `tryDiscardPuzzle` returns a well-formed puzzle for an ordinary hand with a genuine best
+  discard, matching `bestDiscard()`'s own answer for that hand directly.
+- `checkDiscardAnswer` returns `correct: true` for the puzzle's own `bestTile`.
+- `checkDiscardAnswer` returns `correct: true` for a tile tied with `bestTile` (reusing the same
+  five-lone-honours tied hand from the decision-log tests, confirming this doesn't repeat the
+  `alternatives`-truncation bug just fixed there).
+- `checkDiscardAnswer` returns `correct: false` for a tile that leaves a worse shanten.
+- `generateDiscardPuzzle()` (real randomness, no injected hand): called a few dozen times, always
+  returns either `null` or a puzzle whose `hand` has exactly 14 tiles, none of them bonus tiles,
+  and whose `bestTile` is actually in `hand`.
+
+## Scope change: minimal UI added
+
+Asked before starting whether to keep this engine-only (like the decision log) or add a minimal UI
+this round. User's call: add the UI, with unit tests for the engine it's built on. `puzzles.js`
+itself has no React dependency either way — the UI is a thin `Puzzle.jsx` consumer of it, so this
+didn't change any of the scope decisions above.
+
+## Review
+
+### What was built
+
+`frontend/src/game/puzzles.js`, exactly as scoped: `tryDiscardPuzzle(hand)` (pure), wrapped by
+`generateDiscardPuzzle()` (real randomness with bounded retries), and `checkDiscardAnswer()`
+(correctness by direct shanten comparison, not list membership — the same fix just made to
+`engine.js`'s decision log, applied here too since it's the same underlying question). 7 new unit
+tests in `frontend/test/puzzles.test.js`, all against hands reused or adapted from existing
+`advisor.test`/`engine.test` cases where possible rather than inventing new ones.
+
+`frontend/src/components/Puzzle.jsx` is a new modal, wired into `App.jsx` behind a "Puzzle" header
+button. It follows `Settings.jsx`'s existing modal conventions exactly (`.backdrop`/`.dialog`,
+`role="dialog"`) rather than introducing a new pattern, and reuses the existing `Tile` component
+for the hand display — no new CSS classes were needed. The bot-turn timer effect and the
+`Coach`/`ScoreSheet` visibility conditions in `App.jsx` now also check `showPuzzle`, matching how
+they already handled `showSettings`, so opening a puzzle mid-turn can't race with a bot move.
+
+### Test plan
+
+- `cd frontend && npm test` — 77/77 pass (70 previous + 7 new puzzle tests).
+- `cd frontend && npm run build` — exit 0.
+- Manual browser smoke test of the actual UI (not just the engine): opened the puzzle panel,
+  answered correctly (dimmed tiles, "Correct!"), generated a new puzzle, answered incorrectly
+  ("Not quite" plus the best tile and its reason), used "New puzzle" to confirm the answer state
+  resets, and "Back to the game" to confirm it closes without disturbing the live hand underneath.
+  No console errors. (Two earlier click attempts missed their target after a stray browser-side
+  zoom the tool itself introduced mid-session — resolved by reloading the page; not an app bug,
+  and not worth a line in Known limits below since it was a test-tooling artifact, not a code path.)
+- No new automated UI test framework was introduced. This repo's whole test suite is `node:test`
+  over pure `src/game/*.js` logic — no `.jsx` component has a dedicated test file today (`Coach.jsx`,
+  `Settings.jsx`, etc. are all verified by hand in a browser only). Adding React component-testing
+  infrastructure for one small modal would be a disproportionately large, precedent-setting
+  addition for this task; the manual smoke test above follows the existing convention instead.
+
+### Known limits
+
+1. **Discard puzzles only.** Claim puzzles (multiple legal calls on a discard, checked against
+   `claimAdvice()`) are a natural next increment, not attempted here.
+2. **No difficulty tuning.** The only filters are "not already complete" and "not every tile ties" —
+   a generated puzzle could still be trivially easy (an obviously dead honour tile) as often as a
+   genuinely hard read. Tuning "interesting" is real design work better done against actual usage
+   than guessed at now.
+3. **No connection to the decision log or puzzle history.** Puzzles are stateless and ephemeral —
+   nothing records which ones a player got right or wrong, so there's no "puzzles from your own
+   mistakes" yet, even though that was the original motivation named for step 1's `state.decisions`.
+   That link is still future work, not built in this round.
+4. **`docs/mvp-notes.md`'s "Testing" section test count is already stale** (says "59 cases," but the
+   frontend suite is at 77 after this and the two prior PRs) — pre-existing drift from before this
+   round, not something introduced here. Left alone rather than recounting the whole paragraph as a
+   side effect of an unrelated task; worth a dedicated pass if it keeps drifting.
