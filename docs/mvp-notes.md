@@ -190,11 +190,13 @@ These are deliberate MVP boundaries, not defects:
    shed lone honours. No lookahead, no defensive play.
 6. **State is in memory only.** Reloading the page starts a fresh session — no profiles, friends
    list or game history (those need Phase 3's Cognito and DynamoDB).
-7. **The coach understands set phrasings, not free-form English.** It covers the questions players
-   actually ask, and offers tappable ones, but an unusual wording falls back to a menu of
-   suggestions. Wiring it to a language model would fix that at the cost of the accuracy guarantees
-   above; the better version would keep the local answers and use a model only to interpret the
-   question.
+7. **The coach understands set phrasings, not free-form English — partially addressed.** It covers
+   the questions players actually ask, and offers tappable ones, so an unusual wording used to fall
+   straight back to a menu of suggestions. `askWithModel()` in `src/game/coach.js` now escalates
+   exactly that case to a Bedrock-backed classifier (`backend/lambda/classifyIntent.ts`, deployed
+   separately) which picks which *existing* local answer fits — the model never writes what the
+   player reads, so the accuracy guarantees above are unchanged. Optional: with no backend deployed
+   (`VITE_CLASSIFY_INTENT_URL` unset), the coach behaves exactly as before, 100% local.
 8. **Discard advice optimises for speed to a win, not defence.** It does not weigh how dangerous a
    tile is to throw, because the bots do not play to win off discards yet.
 
@@ -206,17 +208,18 @@ React Native packaging for iOS/Android.
 
 ## Testing
 
-`npm test` runs 56 cases. Twenty-one cover the rules — wall composition, the deal, win validation,
+`npm test` runs 58 cases. Twenty-one cover the rules — wall composition, the deal, win validation,
 each scoring pattern, the limit cap, ambiguous-hand readings, chow-only-from-the-left, claim
 priority, kong detection, seat winds and payouts. The other nine cover the tile artwork: that all 46
 distinct faces resolve, that each rank draws exactly that many pips, that no pip or cane overflows
-the tile or collides with its neighbour, and that no two ranks draw identically. The last twenty-one
+the tile or collides with its neighbour, and that no two ranks draw identically. Twenty-three
 cover the help coach: the distance-from-winning maths against hand-built positions, discard and call
 advice, question routing (including that "should I pong this?" gets advice while "what does pong do?"
-gets the rule), and that **every answer stays within the length budget** — the brevity requirement
-checked mechanically rather than by good intentions. Five more cover the table's wall ring: that it
-accounts for every tile, stays balanced across the four edges, thins as the wall is drawn, and never
-produces a negative or ragged ring.
+gets the rule), that **every answer stays within the length budget** — the brevity requirement
+checked mechanically rather than by good intentions — and that `askWithModel()` matches `ask()`
+exactly both when a local pattern already fits and when no classifier endpoint is configured. Five
+more cover the table's wall ring: that it accounts for every tile, stays balanced across the four
+edges, thins as the wall is drawn, and never produces a negative or ragged ring.
 
 The engine was additionally soak-tested over 3,000 complete bot-vs-bot hands, asserting on every
 single step that tiles are conserved (wall + hands + melds + flowers + discards = 144), that hand

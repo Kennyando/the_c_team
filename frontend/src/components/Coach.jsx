@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { ask, QUICK_QUESTIONS } from '../game/coach.js';
+import { askWithModel, QUICK_QUESTIONS } from '../game/coach.js';
 import { pendingHelp, situationHint } from '../game/advisor.js';
 import { speak } from '../hooks/useNarration.js';
 
@@ -29,10 +29,12 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
     if (voice) speak(`${answer.title}. ${answer.lines.join(' ')}`);
   };
 
-  const askNow = (question) => {
+  const askNow = async (question) => {
     if (!question.trim()) return;
-    put(question, ask(question, state));
     setDraft('');
+    // Resolves instantly for anything the local patterns already recognise — askWithModel
+    // only reaches for the network when there is genuinely no local match.
+    put(question, await askWithModel(question, state));
   };
 
   // With hints on, lead with what is happening right now rather than an empty panel. Keyed on

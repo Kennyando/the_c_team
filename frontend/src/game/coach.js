@@ -284,3 +284,87 @@ export function ask(question, state) {
 
 /** Every curated answer, for the brevity test to check. */
 export const STATIC_ANSWERS = STATIC;
+
+// ---------------------------------------------------------------------------
+// Model-assisted fallback (optional, additive)
+// ---------------------------------------------------------------------------
+//
+// `ask()` above is untouched and stays fully local and synchronous — every existing behaviour,
+// and every test against it, is unaffected by anything below this line.
+//
+// `askWithModel()` wraps it: only when the local keyword patterns find no match does it ask a
+// backend model to pick which *existing* intent best fits the wording. The model never writes
+// what the player reads — it only chooses which of the handlers above to call — so none of the
+// accuracy guarantees above (correct by construction, aware of this table's own house rules) are
+// weakened. If no endpoint is configured, or the call fails, times out, or returns anything we
+// don't recognise, the original local fallback is returned unchanged. This is the upgrade path
+// docs/mvp-notes.md's known-limitation #7 names: "keep the local answers and use a model only to
+// interpret the question."
+
+/** One-line hints so a small classifier model knows what each intent id is asking about. */
+const INTENT_HINTS = {
+  'advice.discard': 'asking which tile to discard right now',
+  'advice.claim': 'asking whether to call pong, chow or kong on the tile just discarded',
+  'advice.progress': 'asking how close their hand is to winning, or what they are waiting on',
+  'advice.value': 'asking how many tai, or how much, their hand would score',
+  'rules.limit': 'asking about the limit hand or the maximum a hand can score',
+  'rules.tai': 'asking about tai scoring or how payouts work',
+  'rules.table': 'asking what house rules this table is playing under',
+  'rules.wall': 'asking about the wall, tiles left, or a draw game',
+  'rules.seat': 'asking about their seat wind or the prevailing wind',
+  'rules.dealer': 'asking about the dealer or banker',
+  'rules.pong': 'asking what pong means or how it works',
+  'rules.chow': 'asking what chow means or how it works',
+  'rules.kong': 'asking what kong means or how it works',
+  'rules.win': 'asking what counts as a winning hand',
+  'rules.flowers': 'asking about flower or season bonus tiles',
+  'rules.concealed': 'asking about concealed versus exposed melds',
+};
+
+// import.meta.env only exists under Vite; plain Node (the test runner) leaves it undefined, so
+// this is unconfigured — and askWithModel falls straight back to ask() — in every test.
+const CLASSIFY_INTENT_URL = import.meta.env?.VITE_CLASSIFY_INTENT_URL;
+const CLASSIFY_TIMEOUT_MS = 4000;
+
+/** Calls the backend classifier. Never throws: any failure is reported as `null`. */
+async function classifyIntentRemote(question) {
+  if (!CLASSIFY_INTENT_URL) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLASSIFY_TIMEOUT_MS);
+  try {
+    const intents = INTENTS.map((i) => ({ id: i.id, hint: INTENT_HINTS[i.id] || i.id }));
+    const res = await fetch(CLASSIFY_INTENT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, intents }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.intent === 'string' ? data.intent : null;
+  } catch {
+    return null; // network error, timeout, malformed response — all treated the same
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Route a question exactly like `ask()`, but escalate to the model classifier when — and only
+ * when — the local patterns found nothing. Always resolves; never throws.
+ */
+export async function askWithModel(question, state) {
+  const local = ask(question, state);
+  if (local.intent !== 'fallback') return local;
+
+  const intentId = await classifyIntentRemote(question);
+  if (!intentId) return local;
+
+  // Never trust the remote id blindly: only ever dispatch to an intent we actually know about.
+  const intent = INTENTS.find((i) => i.id === intentId);
+  if (!intent) return local;
+
+  const answer = intent.answer(state);
+  return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
+}

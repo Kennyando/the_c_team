@@ -328,3 +328,109 @@ Two calibrations came out of looking at the result rather than reasoning about i
 2. The two side seats read as standing racks facing you rather than turned side-on. A truly
    side-facing rack would put their names on their sides, which is the kind of skewed text this app
    exists to avoid.
+
+---
+
+# Follow-up: fix backend path mismatch, add model-assisted coach fallback
+
+The AWS backend (`backend/`) had never actually built: `bin/app.ts` imported `../lib/kaki-mahjong-stack`
+and that stack imported its Lambda handlers from `../lambda/*` and `../lambda/mahjong/*`, but none of
+those directories existed — `app.ts`, the handlers, and `kaki-mahjong-stack.ts` itself were sitting in
+the wrong places (some at the repo root, not even under `backend/`). Fix that first, then add the
+smallest useful step toward the agentic coach: a model classifier in front of the coach's existing
+local routing, not a replacement for it.
+
+## Todo
+
+- [x] 1. Move every backend file to the path its own imports already assumed — no import rewrites,
+     since the code was written for the right layout, it just wasn't sitting there
+- [x] 2. Fix `backend/package.json`'s stale `bin` field (`bin/app.js` → `dist/bin/app.js`, matching
+     `tsconfig.json`'s `outDir`)
+- [x] 3. Fix `.gitignore`'s bare `lib/` pattern, which silently ignored `backend/lib/` (the exact
+     directory the fix moves a real source file into); add the missing `cdk.out/` entry
+- [x] 4. `npm install` + `npm run build` (tsc) green in `backend/`
+- [x] 5. `npx cdk synth` green in `backend/`
+- [x] 6. `backend/lambda/classifyIntent.ts` — new stateless HTTP route, calls Amazon Bedrock
+     (Nova Micro by default) to classify a free-text question into one of the coach's own intent ids
+- [x] 7. `backend/lib/kaki-mahjong-stack.ts` — `ClassifyIntentFn`, a plain HTTP API (`CoachApi`, CORS
+     on) rather than a new WebSocket route, and an IAM policy scoped to the one Bedrock model ARN
+- [x] 8. `frontend/src/game/coach.js` — `askWithModel()`, additive only: falls back to the classifier
+     only when the existing local patterns in `ask()` find nothing, and only ever uses the model's
+     answer to pick which existing local handler to call, never to write the reply itself
+- [x] 9. `frontend/src/components/Coach.jsx` — use `askWithModel()`
+- [x] 10. `frontend/.env.template` — optional `VITE_CLASSIFY_INTENT_URL`
+- [x] 11. `frontend/test/coach.test.js` — cover both `askWithModel()` paths
+- [x] 12. Update `backend/README.md` and `docs/mvp-notes.md`
+
+## Review
+
+### What was built
+
+**The backend path mismatch, fixed at the root.** Every file now lives exactly where its own
+existing imports already assumed — `backend/bin/app.ts`, `backend/lib/kaki-mahjong-stack.ts`,
+`backend/lambda/{connect,disconnect,join,gameAction,advise,util}.ts`, and
+`backend/lambda/mahjong/{tiles,shanten,advisor,sanity-test}.ts`. No import needed rewriting: the
+code had been written for this layout, it just was never placed in it, so this was a pure move.
+`npm run build` and `npx cdk synth` are both green, and the mahjong sanity tests still pass with the
+same output as before the move.
+
+Two things a straight move surfaced along the way, both fixed rather than left as follow-ups per
+rule 8: `package.json`'s `bin` field pointed at `bin/app.js`, which was never where `tsc` (`outDir:
+dist`) would put it — corrected to `dist/bin/app.js`. And `.gitignore` carried a bare `lib/` line
+from a Python template, which — unqualified — matches a directory named `lib` at *any* depth,
+including the exact `backend/lib/` this fix populates; left alone, a future edit to
+`kaki-mahjong-stack.ts` would silently vanish from `git status`. Anchored to `/lib/` (root-only,
+matching what it originally meant) rather than removed outright, since nothing else relies on it.
+`cdk.out/` was also missing from `.gitignore` and is now there.
+
+**The intent classifier, additive only.** `docs/mvp-notes.md`'s own known-limitation #7 named the
+upgrade path: "keep the local answers and use a model only to interpret the question." That's
+exactly what `askWithModel()` does. `ask()` itself — every pattern, every computed answer, every
+existing test — is untouched. The new function calls `ask()` first; only when that returns
+`fallback` does it POST the question to `backend/lambda/classifyIntent.ts`, which asks a Bedrock
+model to pick one of the coach's own current intent ids (sent fresh on every request, so the
+classifier never goes stale if an intent is added or renamed) or `fallback`. The model's answer is
+never shown to the player — it only selects which of the existing local handlers runs, so
+`docs/mvp-notes.md`'s accuracy guarantees (rules-correct by construction, aware of this table's own
+house-rule toggles) hold exactly as before.
+
+Chose a plain HTTP API over a new WebSocket route because classifying one string needs no room, no
+connection, no shared game state — the existing `join`/`action`/`advise` routes all assume a
+connected, seated player, which would be pure overhead for "what does this phrase mean."
+
+Every failure mode collapses to the same thing: no `VITE_CLASSIFY_INTENT_URL` configured, a network
+error, a timeout (capped at 4s client-side), Bedrock access not granted, or the model returning
+something that isn't one of the ids it was given — all of these return the plain local `fallback`
+answer, identical to today. The coach cannot be made to work *worse* by this change; it can only
+occasionally work better.
+
+### Why not a bot opponent yet
+
+Out of scope for this pass, on purpose. A model-driven bot needs to reason about a full, partially
+hidden game state (its own hand, discards, opponents' likely hands, house rules) turn after turn,
+and be fast enough not to stall three other players every discard — a much bigger lift than
+classifying one short question. `bots.js`'s heuristic is simple, but it is fast, free, and
+side-effect-free, and it already produces "a game that feels like a real table," which is the bar
+the code comment sets for it. Rule 6 (simplicity, minimal blast radius) argues against replacing a
+working, tested piece wholesale before the smaller, higher-leverage change (this one) has even been
+tried in practice. Worth revisiting once the classifier is deployed and its cost/latency in real use
+is known.
+
+### Verification
+
+- `cd backend && npm install && npm run build` — exit 0, `dist/` mirrors the corrected source tree.
+- `cd backend && npx cdk synth` — exit 0; template includes `ClassifyIntentFn`, `CoachApi`, the
+  scoped `bedrock:InvokeModel` policy, and the new `ClassifyIntentUrl` output.
+- `npx ts-node lambda/mahjong/sanity-test.ts` — all PASS lines unchanged from before the move.
+- `cd frontend && npm test` — 58 pass (the prior 56, plus two new `askWithModel` cases).
+- `cd frontend && npm run build` — exit 0.
+
+### Known limits
+
+1. **Not deployed.** `cdk synth` proves the template is valid; `cdk deploy` (needs real AWS
+   credentials) was not run, so `ClassifyIntentUrl` doesn't exist yet and the coach runs 100% local
+   until someone deploys and sets `VITE_CLASSIFY_INTENT_URL`.
+2. **Bedrock model access is an AWS-account setting**, not something `cdk deploy` grants by itself —
+   Nova Micro (or whichever model id is chosen) needs to be enabled in the Bedrock console for the
+   target account/region first, or every classify call will fail closed to the local fallback.
+3. **No bot opponent work was done**, deliberately — see above.

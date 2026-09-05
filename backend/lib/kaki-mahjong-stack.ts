@@ -164,6 +164,51 @@ export class KakiMahjongStack extends cdk.Stack {
       memorySize: 512, // the shanten search is the most CPU-heavy handler
     });
 
+    // The help coach's model-assisted fallback: classifies a free-text
+    // question into one of coach.js's existing intent ids when the local
+    // keyword patterns miss. Stateless request/response — no room, no game
+    // state — so it gets a plain HTTP route below rather than a WebSocket
+    // one, and it does NOT share commonEnv/nodeFnDefaults' game-table wiring.
+    // Nova Micro: the cheapest/fastest Bedrock text model, well suited to a
+    // one-word classification task. Override with `-c bedrockModelId=...`
+    // (e.g. an Anthropic Claude Haiku model id) if your account's Bedrock
+    // model access differs.
+    const bedrockModelId = (this.node.tryGetContext("bedrockModelId") as string) || "amazon.nova-micro-v1:0";
+
+    const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(8),
+      logRetention: logs.RetentionDays.ONE_WEEK,
+      bundling: { minify: true, sourceMap: true },
+      entry: path.join(__dirname, "..", "lambda", "classifyIntent.ts"),
+      environment: { BEDROCK_MODEL_ID: bedrockModelId },
+    });
+
+    // Bedrock foundation-model ARNs carry no account segment (they are not
+    // account-owned resources), unlike every other ARN in this stack.
+    const bedrockModelArn = `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${bedrockModelId}`;
+    classifyIntentFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: [bedrockModelArn],
+      }),
+    );
+
+    const httpApi = new apigwv2.HttpApi(this, "CoachApi", {
+      apiName: `kaki-mahjong-coach-${envName}`,
+      corsPreflight: {
+        allowOrigins: ["*"], // static-site frontend + local dev; no cookies/credentials involved
+        allowMethods: [apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
+        allowHeaders: ["content-type"],
+      },
+    });
+    httpApi.addRoutes({
+      path: "/classify-intent",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2i.HttpLambdaIntegration("ClassifyIntentIntegration", classifyIntentFn),
+    });
+
     const webSocketApi = new apigwv2.WebSocketApi(this, "GameSocketApi", {
       apiName: `kaki-mahjong-ws-${envName}`,
       connectRouteOptions: { integration: new apigwv2i.WebSocketLambdaIntegration("ConnectIntegration", connectFn) },
@@ -232,6 +277,7 @@ export class KakiMahjongStack extends cdk.Stack {
     // Outputs
     // ---------------------------------------------------------------------
     new cdk.CfnOutput(this, "WebSocketUrl", { value: stage.url });
+    new cdk.CfnOutput(this, "ClassifyIntentUrl", { value: `${httpApi.apiEndpoint}/classify-intent` });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "AssetsBucketName", { value: assetsBucket.bucketName });

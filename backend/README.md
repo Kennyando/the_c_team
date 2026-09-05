@@ -66,11 +66,42 @@ lambda/disconnect.ts       $disconnect route (cleans up + notifies room)
 lambda/join.ts             "join" route — seats a player in a room
 lambda/gameAction.ts       "action" route — moves + Polly narration
 lambda/advise.ts           "advise" route — the move-advisor chatbot
+lambda/classifyIntent.ts   HTTP "/classify-intent" route — help-coach fallback classifier
 lambda/mahjong/tiles.ts    Tile encoding + human-readable parsing
 lambda/mahjong/shanten.ts  Distance-to-win calculator
 lambda/mahjong/advisor.ts  Legal-call detection + discard recommendation
 lambda/mahjong/sanity-test.ts  Standalone tests for the above (not deployed)
 ```
+
+## Help-coach fallback classifier
+
+`lambda/classifyIntent.ts` backs the frontend help coach's `askWithModel()`
+(`frontend/src/game/coach.js`). The coach is otherwise fully local — no
+network, no API key (see `frontend/docs`) — and stays that way for every
+question its own keyword patterns recognise. Only when a typed question
+matches none of them does the frontend POST it to this route.
+
+This is deliberately a plain HTTP API (`CoachApi`), not a new WebSocket
+route: classifying one string needs no room, no connection, no game state,
+so it would be pure overhead to require joining a multiplayer session just
+to ask for help.
+
+The Lambda calls Amazon Bedrock (`amazon.nova-micro-v1:0` by default — cheap
+and fast, right-sized for a one-word classification task) with the coach's
+own current list of intent ids and a one-line hint for each, and asks it to
+return exactly one of those ids, or `fallback`. **The model never writes
+what the player reads** — it only picks which of the coach's existing,
+locally-computed answer functions to call, so none of the accuracy
+guarantees in `docs/mvp-notes.md` (correct by construction, aware of this
+table's own house rules) are weakened. Any failure — Bedrock unavailable,
+model access not granted, a timeout, an id we don't recognise — is treated
+identically to "no match" and the coach's own local fallback answer is used
+instead; the coach never breaks, and works with zero backend deployed at
+all if `frontend/.env.template`'s `VITE_CLASSIFY_INTENT_URL` is left blank.
+
+Swap the model with `npx cdk deploy -c bedrockModelId=<another Bedrock model id>`
+if your account's model access differs (e.g. an Anthropic Claude Haiku model
+on Bedrock instead of Nova Micro).
 
 ## Prerequisites
 
@@ -101,6 +132,8 @@ npx cdk deploy
 via `aws cloudformation describe-stacks`):
 
 - `WebSocketUrl` — the `wss://` endpoint the client app connects to
+- `ClassifyIntentUrl` — set as `VITE_CLASSIFY_INTENT_URL` in the frontend to turn on the help
+  coach's model-assisted fallback (optional — the coach works without it)
 - `UserPoolId` / `UserPoolClientId` — for Cognito sign-in in the client
 - `AssetsBucketName` — upload tile graphics/sounds here (e.g. under `tiles/`)
 - `AssetsDomainName` — the CloudFront domain serving those assets and Polly audio
@@ -137,8 +170,12 @@ via `aws cloudformation describe-stacks`):
 Every service here is either serverless or pay-per-use (DynamoDB on-demand,
 Lambda, API Gateway, S3/CloudFront, Polly), so idle time between class demo
 sessions costs close to nothing. Polly's free tier (5M characters/month for
-12 months) comfortably covers development and testing. Run `npx cdk destroy`
-when you're done with a milestone to avoid any lingering charges.
+12 months) comfortably covers development and testing. Bedrock is pay-per-call
+with no free tier, but Nova Micro is priced in fractions of a cent per
+1,000 tokens and each classify-intent call sends only a short prompt with a
+16-token response cap — thousands of coach questions cost cents, not dollars.
+Run `npx cdk destroy` when you're done with a milestone to avoid any
+lingering charges.
 
 ## What's not here yet
 

@@ -9,7 +9,9 @@ import { DEFAULT_RULES } from '../src/game/scoring.js';
 import {
   shanten, waits, bestDiscard, claimAdvice, handSummary, describeDistance, situationHint,
 } from '../src/game/advisor.js';
-import { ask, INTENTS, QUICK_QUESTIONS, STATIC_ANSWERS, MAX_LINES, MAX_LINE_LENGTH } from '../src/game/coach.js';
+import {
+  ask, askWithModel, INTENTS, QUICK_QUESTIONS, STATIC_ANSWERS, MAX_LINES, MAX_LINE_LENGTH,
+} from '../src/game/coach.js';
 
 const rules = { ...DEFAULT_RULES };
 const player = (hand, melds = [], bonus = []) => ({ seat: 0, hand, melds, bonus, points: 0 });
@@ -216,6 +218,23 @@ test('the coach advises on a genuine dealt position', () => {
   const named = s.players[0].hand.find((t) => advice.lines[0].includes(tileName(t)));
   assert.ok(named, `advice "${advice.lines[0]}" should name a tile from the hand`);
   assert.match(advice.lines.at(-1), /from winning|complete hand/);
+});
+
+// --- model-assisted fallback -------------------------------------------------
+
+test('askWithModel matches ask() exactly when a local pattern already fits', async () => {
+  // No network should be needed at all here — a matched question never reaches the classifier.
+  const s = state();
+  assert.deepEqual(await askWithModel('what does pong do?', s), ask('what does pong do?', s));
+});
+
+test('askWithModel degrades to the plain local fallback with no classifier endpoint configured', async () => {
+  // Outside Vite (this test runner), VITE_CLASSIFY_INTENT_URL is always unset, so this exercises
+  // exactly the "backend not deployed" path every player hits before anyone configures one.
+  const s = state();
+  const answer = await askWithModel('what is the weather like', s);
+  assert.equal(answer.intent, 'fallback');
+  assert.deepEqual(answer, ask('what is the weather like', s));
 });
 
 test('the situation hint follows the turn', () => {

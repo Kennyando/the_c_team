@@ -2,7 +2,7 @@
   "name": "kaki-mahjong-backend",
   "version": "0.1.0",
   "bin": {
-    "kaki-mahjong-backend": "bin/app.js"
+    "kaki-mahjong-backend": "dist/bin/app.js"
   },
   "scripts": {
     "build": "tsc",
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "^3.600.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.600.0",
     "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/client-polly": "^3.600.0",
     "@aws-sdk/client-s3": "^3.600.0",

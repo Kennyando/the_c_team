@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -225,6 +225,7 @@ dist/
 build/
 .next/
 *.log
+cdk.out/
 
 # --- OS junk ---
 .DS_Store
