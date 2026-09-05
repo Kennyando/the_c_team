@@ -680,3 +680,155 @@ expected result.
 2. **The Budget alert is opt-in.** A deployment that never sets `coachBudgetAlertEmail` still has
    no dollar-amount cost alert — only the pre-existing rate/concurrency caps. The synth-time
    warning is the only nudge toward setting it.
+
+# Planned: structured decision log (step 1 toward a teaching agent)
+
+Goal (from the user): a future agent that teaches the player with reasoning, sets puzzles, and
+reviews mistakes after the hand. All three need to know, after the fact, what decision the player
+actually faced and what the engine would have done instead — and nothing in `engine.js` records
+that today. `state.log` is a narrative string log ("You discarded d5"), not structured data a
+review pass could compare against. This step only adds that data; no puzzle generation and no
+review UI/agent yet — those are separate follow-ups once this exists to build on.
+
+**Scope decision: only the human's (seat 0) decisions are logged.** The bots use a fixed heuristic
+(`bots.js`) that never varies, so there's nothing to "teach" there, and logging every bot discard
+would triple the log's size for zero benefit to this feature.
+
+**Scope decision: lives in `engine.js`, not a new module.** `engine.js` already owns every state
+mutation and already appends to `state.log` from inside `discardTile`/`resolveClaims`/etc.; adding
+a second, structured append in the same places is the smallest change. It's a new import of
+`advisor.js` into `engine.js` (currently one-directional the other way: nothing in `advisor.js`
+imports `engine.js`, so no cycle), for `shanten`, `bestDiscard`, and `claimAdvice` — the exact
+functions the coach already uses to judge a position, so "the engine's recommendation" in the log
+is by construction the same recommendation the coach would give live.
+
+## Todo
+
+- [x] 1. `frontend/src/game/engine.js` — add `decisions: []` to the state object built in `newGame`
+- [x] 2. `frontend/src/game/engine.js` — import `shanten`, `bestDiscard`, `claimAdvice` from
+     `./advisor.js`
+- [x] 3. `frontend/src/game/engine.js` — in `discardTile(state, tile)`, before the tile is spliced
+     out of `p.hand`: if `p.isHuman`, compute `bestDiscard(p)` and `shanten` on the hand with the
+     chosen tile removed, and push a decision entry (shape below) onto `state.decisions`
+- [x] 4. `frontend/src/game/engine.js` — in `resolveClaims(state, humanChoice)`, before
+     `state.claimOptions` is cleared: if `state.claimOptions.length > 0` (the human had a real
+     choice — bots can't claim their own tiles, so a non-empty list always means it was the
+     human's opportunity), run `claimAdvice` over each option and push a decision entry
+- [x] 5. `frontend/test/engine.test.js` — unit tests (list below)
+- [x] 6. `docs/mvp-notes.md` — one paragraph noting the new `state.decisions` log and that it's
+     currently unconsumed (no UI or review pass reads it yet — this step is groundwork only)
+
+## Entry shapes
+
+Discard decision:
+```js
+{
+  type: 'discard',
+  hand: [...],              // player's hand at the moment of decision (includes the chosen tile)
+  melds: [...],              // player's exposed melds at that moment, for context
+  chosen: tile,
+  recommended: tile,         // bestDiscard(player).tile
+  shantenBefore: number,     // shanten(hand, melds) before discarding
+  shantenAfterChosen: number,
+  shantenAfterRecommended: number,   // === bestDiscard(player).shantenAfter
+  reasons: [...],            // bestDiscard(player).reasons — why the recommended tile was picked
+  optimal: boolean,          // chosen === recommended, or chosen is one of bestDiscard's `alternatives`
+}
+```
+
+Claim decision:
+```js
+{
+  type: 'claim',
+  pendingTile: tile,          // the discard on offer
+  discardedBy: seat,
+  options: [{ claim, verdict, lines }, ...],   // claimAdvice(player, claim, pendingTile) per option
+  chosen: claim | null,       // what the human actually took, or null if they passed
+  recommended: claim | null,  // the first option with verdict 'yes', or null if passing was correct
+  optimal: boolean,           // chosen and recommended are both null, or chosen matches recommended
+}
+```
+
+**Known simplification, noted up front rather than discovered later:** if two different claim
+options both have verdict `'yes'` (e.g., both a chow and a pong would advance the hand), only the
+first is recorded as `recommended`. `claimAdvice` doesn't rank between two helpful calls today —
+teaching "which of two good calls is better" is out of scope for this step.
+
+## Planned unit tests (`frontend/test/engine.test.js`)
+
+- `discardTile` records a decision entry for the human's discard, with `optimal: true`, when the
+  human discards the tile `bestDiscard` recommends.
+- `discardTile` records `optimal: false` and the correct `shantenAfterChosen` when the human
+  discards a tile that leaves them further from winning than the recommended one.
+- `discardTile` records `optimal: true` for a tile in `bestDiscard`'s `alternatives` list, not just
+  for an exact match on `recommended` — ties should not read as mistakes.
+- `discardTile` does **not** push anything onto `state.decisions` for a bot's discard (turn on a
+  non-human seat).
+- `resolveClaims` records a `'claim'` decision with `chosen: null` and the correct `recommended`
+  when the human had a legal, hand-improving call available and passed (`humanChoice` is
+  `null`/`undefined`).
+- `resolveClaims` records `optimal: true` when the human takes the one call that helps.
+- `resolveClaims` records `optimal: false` when the human takes a call `claimAdvice` says doesn't
+  help (verdict `'no'`).
+- `resolveClaims` pushes **no** decision entry when `state.claimOptions` was empty (nothing for the
+  human to decide on that discard).
+- A full `newGame()` starts with `state.decisions` as an empty array.
+
+## Review
+
+### What was built
+
+`frontend/src/game/engine.js` now imports `shanten`, `bestDiscard` and `claimAdvice` from
+`./advisor.js` (a new, one-directional dependency — `advisor.js` already had none on `engine.js`,
+so no cycle) and uses them to append a structured entry to a new `state.decisions` array:
+
+- **`discardTile`** records one whenever the seat about to discard `isHuman`, computed from the
+  hand *before* the chosen tile is spliced out, via a new `recordDiscardDecision(player, chosen)`
+  helper. `optimal` is true for an exact match on `bestDiscard`'s pick **or** one of its tied
+  `alternatives` — a tie is not a mistake.
+- **`resolveClaims`** records one whenever `state.claimOptions.length > 0` — the only case where
+  the human genuinely had a call to make, since a player can never claim their own discard — via a
+  new `recordClaimDecision(state, humanChoice)` helper. It runs `claimAdvice` over every option on
+  offer and takes the first `verdict: 'yes'` one as `recommended`; passing (`humanChoice` is
+  `null`/`undefined`) is only `optimal` when no option was worth taking either. `chosen` and
+  `recommended` are compared by reference, not deep equality — both come from the same
+  `state.claimOptions` array elements the UI already passes straight through unmodified
+  (confirmed by reading `CallBar.jsx`: it maps over `actions` without cloning), so `===` is exact
+  and doesn't need a bespoke claim-comparison function.
+
+Both entry points are the single funnel `App.jsx` already goes through for every human discard and
+claim decision (confirmed by reading it before writing any code — `passClaims` is only ever called
+internally by `resolveClaims` itself, never directly by the UI), so no other call site needed
+touching.
+
+`docs/mvp-notes.md` gets a new known-simplification #9 marking `state.decisions` as groundwork:
+nothing reads it yet.
+
+### Test plan
+
+- `cd frontend && npm test` — 68/68 pass (the previous 59, plus 9 new decision-log tests). Two of
+  the new claim-decision tests needed a hand redesigned mid-implementation: my first attempt at a
+  "this call helps" hand accidentally also satisfied `isWinningHand`, so `getClaimsFor` returned a
+  `win` option alongside the `pong` and the assertions on a single clean option failed. Verified the
+  final hands against `advisor.js`'s actual `shanten`/`claimAdvice`/`getClaimsFor` output directly
+  (via a throwaway `node -e` script) rather than by hand-calculating shanten, after an initial
+  by-hand calculation also turned out wrong.
+- `cd frontend && npm run build` — exit 0.
+- Manual smoke test: added `.claude/launch.json` (frontend dev server, `npm --prefix
+  .../frontend run dev`) since none existed, started it, and drove the actual UI in the browser —
+  dealt a hand, discarded a tile through the confirm dialog, and let bot turns advance. No console
+  errors, wall count and turn order updated correctly. This exercises `discardTile` and the
+  claim-window path through the real UI, not just the unit tests.
+
+### Known limits
+
+1. **Nothing reads `state.decisions` yet.** This step is groundwork only — no puzzle generation, no
+   post-game review pass or UI, as scoped from the start.
+2. **The two-good-calls simplification from the plan stands**: if two different claim options both
+   have verdict `'yes'`, only the first is `recommended`. Not exercised by a test since
+   `claimAdvice`/`getClaimsFor` don't currently produce that situation in a way this session found
+   worth constructing a test hand for; worth a test if a future review pass depends on it.
+3. **Not tested against a played-out full hand.** Every test constructs a single decision in
+   isolation (a hand assigned directly to `state.players[0].hand`); nothing exercises `decisions`
+   accumulating correctly across many discards/claims in one real hand from `newGame()` to
+   `finishHand()`.

@@ -6,6 +6,7 @@
 import { buildWall, isBonus, sortTiles, tileName } from './tiles.js';
 import { getClaimsFor, getSelfKongs, isWinningHand, bestClaim } from './melds.js';
 import { scoreHand, settle, seatWindOf } from './scoring.js';
+import { shanten, bestDiscard, claimAdvice } from './advisor.js';
 
 export const SEAT_NAMES = ['You', 'Ah Ma', 'Ah Gong', 'Ah Huat'];
 
@@ -48,6 +49,9 @@ export function newGame(rules, dealer = 0, carriedPoints = [0, 0, 0, 0]) {
     botClaims: [],
     result: null,
     log: [],
+    // Structured record of the human's discard/claim decisions, for a future post-game review —
+    // separate from `log` above, which is narrative text for display, not data to compare against.
+    decisions: [],
   };
 
   // Bonus tiles held after the deal are set aside and replaced, dealer first.
@@ -115,11 +119,39 @@ function drawReplacement(state) {
   return state;
 }
 
+/**
+ * A structured record of the human's discard, for a future post-game review — separate from the
+ * narrative `log`, which is display text, not data to compare against. Reuses `advisor.js`'s own
+ * `bestDiscard`, the exact function the live coach uses to judge a position, so this is by
+ * construction the same recommendation the coach would give at the same moment.
+ */
+function recordDiscardDecision(player, chosen) {
+  const rec = bestDiscard(player);
+  const rest = [...player.hand];
+  rest.splice(rest.indexOf(chosen), 1);
+
+  return {
+    type: 'discard',
+    hand: [...player.hand],
+    melds: player.melds.map((m) => ({ ...m })),
+    chosen,
+    recommended: rec.tile,
+    shantenBefore: shanten(player.hand, player.melds),
+    shantenAfterChosen: shanten(rest, player.melds),
+    shantenAfterRecommended: rec.shantenAfter,
+    reasons: rec.reasons,
+    // A tie with the recommended tile (one of bestDiscard's `alternatives`) is not a mistake.
+    optimal: chosen === rec.tile || rec.alternatives.includes(chosen),
+  };
+}
+
 /** Discard, then open the claim window for the other three players. */
 export function discardTile(state, tile) {
   const p = state.players[state.turn];
   const i = p.hand.indexOf(tile);
   if (i === -1) return state;
+
+  if (p.isHuman) state.decisions.push(recordDiscardDecision(p, tile));
 
   p.hand.splice(i, 1);
   state.discards.push({ tile, by: p.seat });
@@ -152,8 +184,35 @@ export function passClaims(state) {
   return state;
 }
 
+/**
+ * A structured record of the human's call/pass decision on a contested discard, alongside
+ * `recordDiscardDecision` above. Reuses `advisor.js`'s `claimAdvice` per option on offer, so the
+ * logged `recommended` call is exactly what the live coach would say about the same discard.
+ */
+function recordClaimDecision(state, humanChoice) {
+  const human = state.players[0];
+  const claimedTile = state.pending.tile;
+  const options = state.claimOptions.map((claim) => ({ claim, ...claimAdvice(human, claim, claimedTile) }));
+  // Both `chosen` and `recommended` come from (or, for `chosen`, are) the same `state.claimOptions`
+  // array elements, so reference equality is enough to tell whether the human took the call advised.
+  const recommended = options.find((o) => o.verdict === 'yes')?.claim ?? null;
+  const chosen = humanChoice || null;
+
+  return {
+    type: 'claim',
+    pendingTile: claimedTile,
+    discardedBy: state.pending.by,
+    options,
+    chosen,
+    recommended,
+    optimal: chosen === recommended,
+  };
+}
+
 /** Award a contested discard to the highest-priority claim. */
 export function resolveClaims(state, humanChoice) {
+  if (state.claimOptions.length > 0) state.decisions.push(recordClaimDecision(state, humanChoice));
+
   const candidates = [...(state.botClaims || [])];
   if (humanChoice) candidates.push({ ...humanChoice, seat: 0 });
   const winner = bestClaim(candidates, state.pending.by);
