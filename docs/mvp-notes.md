@@ -219,6 +219,22 @@ These are deliberate MVP boundaries, not defects:
    every time. Five of the 9 curated puzzles changed which tile they recommend once this landed,
    three of them switching from a lone honour to a suited tile. It still does not weigh how
    dangerous a tile is to throw, because the bots do not play to win off discards yet.
+
+   A round of PR review on this feature caught and fixed a real bug: `contextFor()`'s own doc
+   comment always said opponents' concealed hands are unknown, but the implementation summed every
+   seat's hand, not just the deciding player's — silently leaking full knowledge of every hidden
+   hand into the live coach's and decision log's value estimate (puzzles were unaffected; they build
+   their own fixed context, never a live one). Fixed, with a regression test. Two smaller
+   robustness fixes landed alongside it: blended-score comparisons now use a small floating-point
+   tolerance (`blendedTie()`) instead of `===`, since a weighted-average division can land a
+   conceptual tie a sliver off exact equality; and the flush-lean heuristic's hard cliff at exactly
+   10 same-suit tiles was replaced with a graduated credit based on how concentrated a hand's suited
+   tiles already are (still gated on holding at least 7 suited tiles, so a small honour-heavy hand
+   can't earn a "100% concentrated" credit by chance). A proposal to add real ukeire (tile-acceptance
+   counts weighted by remaining copies) to the ranking was benchmarked and declined: it measured
+   ~22x slower per `bestDiscard()` call (1.95ms → 44ms across 200 sampled hands) — the same class of
+   regression that disqualified PR #8 — and conflicts with this feature's deliberate "lightweight
+   single-step estimate" scope decision.
 9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
    entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
    claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it

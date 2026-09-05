@@ -256,13 +256,6 @@ test('a discard tied with the recommended tile is not read as a mistake', () => 
   // Four complete sets plus two unpaired honours: discarding either is equally good, leaving four
   // sets and one tile waiting to pair up.
   state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'c9', 'we', 'ws'];
-  // recordDiscardDecision builds its context from every seat's hand, not just the human's — with
-  // bestDiscard() now value-aware, an extra copy of 'we'/'ws' randomly dealt to another seat would
-  // change the remaining-copy weighting behind the tenpai wait on each tile and could break this
-  // tie unpredictably. Pin the other three hands so this stays a genuine tie every run.
-  state.players[1].hand = ['b4', 'b4', 'b5', 'b5', 'b6', 'b6', 'c1', 'c1', 'c2', 'c2', 'c3', 'c3', 'd7'];
-  state.players[2].hand = ['b7', 'b7', 'b8', 'b8', 'b9', 'b9', 'c4', 'c4', 'c5', 'c5', 'c6', 'c6', 'd8'];
-  state.players[3].hand = ['c8', 'c8', 'c9', 'c9', 'd9', 'd9', 'ww', 'ww', 'wn', 'wn', 'dr', 'dr', 'dw'];
 
   discardTile(state, 'ws');
 

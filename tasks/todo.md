@@ -1585,3 +1585,95 @@ trustworthy method):
    never looks at what an opponent might already be collecting.
 3. **Still no defensive awareness**, unchanged from before this round — discard advice still doesn't
    weigh how dangerous a tile is to throw, because the bots do not play to win off discards yet.
+
+# PR #9 review response
+
+`joshu4-j-j0hn` left 6 comments on PR #9 (code snippets plus a closing list of blocker/important/
+follow-up items and an architecture sketch for a future LangGraph-based coach). Investigated each
+against the actual code and, where a change was proposed, benchmarked or simulated it before
+deciding — the same standard this PR held PR #8 to — rather than accepting or rejecting anything on
+description alone.
+
+## Todo
+
+- [x] 1. **Fix `contextFor()`'s concealed-hand leak (flagged "potential blocker").** Confirmed real:
+     the function's own doc comment says opponents' concealed hands are unknown, but the loop summed
+     every seat's `p.hand`, not just the deciding player's. Fixed in `advisor.js` to only add the
+     deciding player's own hand, keeping every seat's exposed melds/bonus and all discards as
+     before. `puzzles.js` is unaffected (it builds its own fixed, single-hand `puzzleContext()`,
+     never a live one) — confirmed by grepping every `contextFor(state, ...)` call site first.
+- [x] 2. **Add a regression test for #1** in `advisor.test.js`: another seat holds a tile
+     (`ww`) only in their concealed hand, never melded/bonused/discarded, and the test now asserts
+     it does *not* appear in `visibleTiles` — the previous version of this test never happened to
+     put an overlapping tile in another seat's hand, so it passed both before and after the bug
+     existed without catching it.
+- [x] 3. **Replace exact `blended === blended` comparisons with a tolerance (flagged "important").**
+     Real, if subtler, risk: `estimateValue()`'s tenpai branch divides a weighted sum by a
+     remaining-tile count, so two candidates that are conceptually tied could differ by a float
+     epsilon depending on summation order. Added `blendedTie()` (a named `1e-9` tolerance, far below
+     the smallest real difference this scale can produce) to `advisor.js` and switched every
+     tie-detecting comparison to it: `bestDiscard()`'s `alternatives` filter, `engine.js`'s
+     `optimal` check, and `puzzles.js`'s `tieCount` count and `checkDiscardAnswer()`.
+- [x] 4. **Simplify the two flakiness fixes from the original PR now that #1 removed their root
+     cause.** The `engine.test.js` "tied with the recommended tile" test no longer needs pinned
+     hands for players 1-3 — `contextFor()` never reads another seat's concealed hand any more, so
+     an extra random `we`/`ws` copy dealt elsewhere can no longer tip the tie regardless. Verified
+     with a 30-run loop before simplifying, so this is a confirmed cleanup, not a guess.
+- [x] 5. **Benchmark the proposed live-ukeire addition (flagged "important") before deciding.**
+     Prototyped the suggested `improvingTiles()` (calling `shanten()` for every standard tile per
+     candidate discard) and timed it against 200 real dealt hands: **1.95ms → 44.3ms per
+     `bestDiscard()` call, a ~22x regression** — the same class of slowdown that disqualified PR #8
+     in the first place, and a direct conflict with the "lightweight single-step estimate" fidelity
+     decision made explicitly for this feature. **Declined**, with the benchmark kept as the record
+     of why, in `docs/mvp-notes.md`.
+- [x] 6. **Replace the hard `dominant >= 10` flush cliff with a graduated concentration credit
+     (flagged "follow-up").** Cheap (pure arithmetic, no extra `shanten()` calls) and a genuine
+     realism improvement — the old cliff gave a 9-same-suit-tile hand zero credit and a 10-tile hand
+     full credit for one tile's difference. Adopted the reviewer's concentration idea
+     (`dominant / suitedTotal`) but added a guard the original snippet didn't have: credit only
+     applies once at least 7 tiles are suited at all, so a hand with 3 suited tiles of one kind and
+     11 honours can't hit "100% concentration" and get flush credit by sheer small-sample luck.
+     Confirmed via script that none of the 9 curated puzzles or existing test fixtures reach even a
+     6-tile dominant suit, so this landed with zero re-verification burden.
+- [x] 7. **Considered and declined two further items, documented rather than silently skipped.**
+     "Add a one-step exact value search at shanten === 1" would meaningfully increase both
+     complexity and cost, and directly contradicts the "Lightweight single-step estimate" fidelity
+     level the user explicitly chose for this feature during planning — a scope decision, not a bug,
+     so not overridden on a reviewer's say-so alone. "Expose `{shanten, ukeire, expectedTai}` from
+     `bestDiscard()` for a future LangGraph coach" describes an architecture (a LangGraph agent) that
+     doesn't exist anywhere in this codebase — nothing to wire up yet; `bestDiscard()`'s return shape
+     can be revisited if and when that agent is actually built.
+
+## Review
+
+### What was built
+
+Two real fixes (the concealed-hand leak and the float-tolerance comparisons), one adopted
+improvement with an added safeguard (graduated flush concentration), one benchmarked-and-declined
+proposal (live ukeire) with the numbers to back the decision, and two scope items declined with
+reasoning rather than ignored. The concealed-hand fix is the one with real behavioural weight —
+every "before" number the coach and decision log ever produced at tenpai was computed with more
+information than a real player has; after this PR, `docs/mvp-notes.md`'s own stated honesty
+principle actually matches what the code does.
+
+### Test plan
+
+- `cd frontend && npm test` — 91/91 pass, confirmed stable across 20 consecutive full-suite runs
+  after the `contextFor()` fix (the same "don't trust one green run" standard applied to the
+  flakiness fixes earlier in this PR).
+- `cd frontend && npm run test:components` — 13/13 pass.
+- `cd frontend && npm run build` — clean.
+- Re-ran the ~20,000-hand difficulty-tier simulation fresh against the patched engine: split moved
+  from ~36/35/28% (hard/medium/easy) to ~31/34/35%, still a workable three-way balance — no further
+  threshold recalibration needed. Confirmed via the puzzle library's own self-validation (throws on
+  a mistiered entry) that none of the 9 curated puzzles drifted.
+- Manual browser check: asked the live coach "what should I discard?" on a freshly dealt hand after
+  the `contextFor()` fix — advice still names a real tile in hand with a sensible value-based reason,
+  confirming the fix didn't regress the ordinary case, just the information it's computed from.
+
+### Known limits (unchanged from the original PR, restated for completeness)
+
+The `VALUE_PER_SHANTEN`/flush/honour weights are still named guesses, not derived numbers;
+`estimateValue()` past tenpai still never models what an opponent might be collecting; discard
+advice still doesn't weigh danger. See the original PR's "Known limits" above — nothing in this
+review round touched those boundaries, only the correctness and robustness of what already existed.

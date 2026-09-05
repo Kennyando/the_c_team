@@ -127,6 +127,20 @@ const suitWord = (s) => SUIT_WORDS[s];
 export const VALUE_PER_SHANTEN = 2;
 
 /**
+ * Whether two blended scores should count as a tie. `estimateValue()`'s tenpai branch divides a
+ * weighted sum of real tai values by a remaining-tile count, so two candidates that are
+ * conceptually tied can still land a sliver apart in floating point (different waits, different
+ * remaining-copy counts, summed in a different order) — a plain `===` would wrongly call that a
+ * mistake. The threshold is far below the smallest real difference this scale can produce (every
+ * weight involved is a simple fraction no finer than the count of a single tile copy), so it can
+ * never paper over an actual difference in value.
+ */
+const BLENDED_TIE_EPSILON = 1e-9;
+export function blendedTie(a, b) {
+  return Math.abs(a - b) < BLENDED_TIE_EPSILON;
+}
+
+/**
  * Build what `estimateValue()`/`bestDiscard()` need to know about the table: whose seat/prevailing
  * wind apply, which scoring rules are live, and every tile already known to be out of the wall.
  *
@@ -140,8 +154,8 @@ export const VALUE_PER_SHANTEN = 2;
 export function contextFor(state, player) {
   const visibleTiles = {};
   const add = (tile) => { visibleTiles[tile] = (visibleTiles[tile] || 0) + 1; };
+  for (const t of player.hand) add(t);
   for (const p of state.players) {
-    for (const t of p.hand) add(t);
     for (const m of p.melds) for (const t of m.tiles) add(t);
     for (const t of p.bonus) add(t);
   }
@@ -216,9 +230,21 @@ function honourAndFlushPotential(player, ctx) {
   if (rules.halfFlush || rules.fullFlush) {
     const suitTotals = { d: 0, b: 0, c: 0 };
     for (const t of player.hand) if (isSuited(t)) suitTotals[suitOf(t)]++;
+    const suitedTotal = Object.values(suitTotals).reduce((a, b) => a + b, 0);
     const dominant = Math.max(...Object.values(suitTotals));
     const hasHonours = player.hand.some(isHonour);
-    if (dominant >= 10) value += hasHonours ? (rules.halfFlush ? 1 : 0) : (rules.fullFlush ? 2 : 0);
+
+    // A hand with only a handful of suited tiles can hit a high dominant/suited ratio by sheer
+    // small-sample luck (3 tiles, all one suit, is a 100% "concentration" that means nothing) —
+    // require most of the hand to already be suited before a lean is credited at all. Above that
+    // floor, credit scales with how concentrated those suited tiles already are, replacing the old
+    // hard cliff at exactly 10 (which gave a 9-tile lean zero credit and a 10-tile lean full credit
+    // for one tile's difference).
+    if (suitedTotal >= 7) {
+      const concentration = dominant / suitedTotal;
+      const lean = concentration >= 0.9 ? 2 : concentration >= 0.8 ? 1.25 : concentration >= 0.7 ? 0.5 : 0;
+      if (lean > 0) value += hasHonours ? (rules.halfFlush ? lean / 2 : 0) : (rules.fullFlush ? lean : 0);
+    }
   }
 
   return value;
@@ -275,7 +301,7 @@ export function bestDiscard(player, ctx) {
     // Anything that ties the winning blended score is an acceptable alternative.
     alternatives: eligible
       .slice(1)
-      .filter((c) => c.blended === choice.blended)
+      .filter((c) => blendedTie(c.blended, choice.blended))
       .slice(0, 2)
       .map((c) => c.tile),
   };

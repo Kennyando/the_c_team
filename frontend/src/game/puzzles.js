@@ -5,7 +5,7 @@
 // the same hand. Pure, like the rest of src/game/ — no React import, testable in plain Node.
 
 import { DEFAULT_RULES } from './scoring.js';
-import { shanten, bestDiscard, evaluateDiscard } from './advisor.js';
+import { shanten, bestDiscard, evaluateDiscard, blendedTie } from './advisor.js';
 
 /**
  * A fixed context for a frozen puzzle hand: default house rules, always seated East. There's no
@@ -61,7 +61,7 @@ export function tryDiscardPuzzle(hand, discards = []) {
   const rec = bestDiscard(player, ctx);
   const distinctTiles = [...new Set(hand)];
   const tieCount = distinctTiles.filter(
-    (tile) => evaluateDiscard(player, tile, ctx).blended === rec.blended,
+    (tile) => blendedTie(evaluateDiscard(player, tile, ctx).blended, rec.blended),
   ).length;
   if (tieCount === distinctTiles.length) return null;
 
@@ -100,5 +100,5 @@ export function checkDiscardAnswer(puzzle, chosenTile) {
 
   const ctx = puzzleContext(puzzle.hand, puzzle.discards || []);
   const evaluation = evaluateDiscard({ hand: puzzle.hand, melds: [], bonus: [] }, chosenTile, ctx);
-  return { correct: evaluation.blended === puzzle.blended, shantenAfterChosen: evaluation.after };
+  return { correct: blendedTie(evaluation.blended, puzzle.blended), shantenAfterChosen: evaluation.after };
 }

@@ -81,7 +81,7 @@ test('evaluateDiscard grades an arbitrary tile the same way bestDiscard ranks it
 
 // --- contextFor(): building visibility from a live state, never from state.wall ----------------
 
-test('contextFor treats every seat\'s hand, melds, bonus, and every discard as visible', () => {
+test('contextFor treats your own hand, every exposed meld/bonus, and every discard as visible', () => {
   const state = newGame(rules, 0);
   // newGame deals randomly, and its own initial deal already moves any flower/season tiles drawn
   // into each player's `.bonus` (see engine.js's post-deal bonus-replacement pass) — pin every
@@ -100,6 +100,11 @@ test('contextFor treats every seat\'s hand, melds, bonus, and every discard as v
   assert.equal(ctx.visibleTiles.dr, 3, 'the exposed dragon pong should be counted');
   assert.equal(ctx.visibleTiles.f1, 1, 'an exposed bonus tile should be counted');
   assert.equal(ctx.visibleTiles.d1, 2, 'the one remaining in hand plus the one just discarded');
+  // Regression: contextFor() previously summed every seat's hand, not just the deciding player's
+  // own — silently contradicting its own doc comment, which has always said opponents' concealed
+  // hands are unknown. player[3]'s two West Winds are held concealed, never melded, bonused, or
+  // discarded, so they must not show up as visible to player 0 at all.
+  assert.equal(ctx.visibleTiles.ww, undefined, 'another seat\'s concealed hand must stay unknown');
   // The engine's wall is a real, fully-determined array in this single-player implementation, but
   // contextFor() must never read it directly — a real player wouldn't know its contents, and
   // advice built on that knowledge wouldn't be honest advice.

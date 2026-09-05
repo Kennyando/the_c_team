@@ -6,7 +6,7 @@
 import { buildWall, isBonus, sortTiles, tileName } from './tiles.js';
 import { getClaimsFor, getSelfKongs, isWinningHand, bestClaim } from './melds.js';
 import { scoreHand, settle, seatWindOf } from './scoring.js';
-import { shanten, bestDiscard, evaluateDiscard, contextFor, claimAdvice } from './advisor.js';
+import { shanten, bestDiscard, evaluateDiscard, contextFor, claimAdvice, blendedTie } from './advisor.js';
 
 export const SEAT_NAMES = ['You', 'Ah Ma', 'Ah Gong', 'Ah Huat'];
 
@@ -147,7 +147,7 @@ function recordDiscardDecision(state, player, chosen) {
     // resulting shanten alone would also wrongly flag a tile that matches speed but not value (or
     // credit one that matches neither) — the blended score is the only number that actually
     // reflects what was recommended and why.
-    optimal: chosenEval.blended === rec.blended,
+    optimal: blendedTie(chosenEval.blended, rec.blended),
   };
 }
 
