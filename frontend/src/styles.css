@@ -184,7 +184,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 [data-theme='contrast'] .stack { background: #fff; border-color: #000; box-shadow: 0 -3px 0 #fff, 0 -3px 0 1px #000; }
 .stack-far { top: 4%; left: var(--at); transform: translateX(-50%); }
-.stack-near { bottom: 4%; left: var(--at); transform: translateX(-50%); }
+.stack-near { bottom: 10%; left: var(--at); transform: translateX(-50%); }
 .stack-left { left: 4%; top: var(--at); transform: translateY(-50%) rotate(90deg); }
 .stack-right { right: 4%; top: var(--at); transform: translateY(-50%) rotate(90deg); }
 
@@ -254,24 +254,28 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   left: 30%;
   right: 30%;
   top: 40%;
-  bottom: 7%;
+  bottom: 12%;
   display: flex;
   flex-wrap: wrap;
-  /* Fill from the bottom. In a long hand the pool overflows, and clipping the oldest discards is
-     far better than clipping the newest one — that is the tile a decision depends on. */
   align-content: flex-end;
   justify-content: center;
   gap: 4px;
   overflow: hidden;
   transform: translateZ(12px);
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
 }
+[data-theme='contrast'] .pool { background: transparent; box-shadow: inset 0 0 0 3px #fff; }
 .pool-empty {
   margin: auto;
   color: var(--text-on-felt);
   opacity: 0.6;
   font-size: calc(14px * var(--tile-scale));
 }
-[data-theme='contrast'] .pool-empty { opacity: 1; }
+[data-theme='contrast'] .pool-empty { opacity: 1; } .pool-tile {
+  flex: none;
+}
 
 /* The tile just thrown stands up at full size — it is the one thing on the table a decision
    actually depends on, so it must not be foreshortened with everything else. */
