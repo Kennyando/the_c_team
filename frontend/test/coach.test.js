@@ -226,16 +226,37 @@ test('the coach advises on a genuine dealt position', () => {
 test('askWithModel matches ask() exactly when a local pattern already fits', async () => {
   // No network should be needed at all here — a matched question never reaches the classifier.
   const s = state();
-  assert.deepEqual(await askWithModel('what does pong do?', s), ask('what does pong do?', s));
+  assert.deepEqual(await askWithModel('what does pong do?', () => s), ask('what does pong do?', s));
 });
 
 test('askWithModel degrades to the plain local fallback with no classifier endpoint configured', async () => {
   // Outside Vite (this test runner), VITE_CLASSIFY_INTENT_URL is always unset, so this exercises
   // exactly the "backend not deployed" path every player hits before anyone configures one.
   const s = state();
-  const answer = await askWithModel('what is the weather like', s);
+  const answer = await askWithModel('what is the weather like', () => s);
   assert.equal(answer.intent, 'fallback');
   assert.deepEqual(answer, ask('what is the weather like', s));
+});
+
+test('askWithModel re-reads state after the classify round trip, not the state from when asked', async () => {
+  // A fake classifier that only resolves after the caller's getState() would report a different
+  // position — regression for answering against a stale snapshot from before the network wait.
+  const before = state();
+  const after = state();
+  after.turn = 2; // no longer the human's turn by the time the "model" responds
+  let current = before;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    current = after; // the game moved on while this "request" was in flight
+    return { ok: true, json: async () => ({ intent: 'advice.discard' }) };
+  };
+  try {
+    const answer = await askWithModel('uh, what tile though', () => current, { classifyUrl: 'https://example.invalid' });
+    assert.match(answer.title, /not your turn/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("coach.js's intents never drift from the backend's classifier catalogue", () => {

@@ -3,6 +3,18 @@ import { useEffect, useRef, useState } from 'react';
 import { askWithModel, QUICK_QUESTIONS } from '../game/coach.js';
 import { pendingHelp, situationHint } from '../game/advisor.js';
 import { speak } from '../hooks/useNarration.js';
+import Tile from './Tile.jsx';
+
+// Shown instead of whatever askWithModel() returned if it throws, or if the result isn't shaped
+// the way every local answer always is — a network hiccup or a future bug there should surface as
+// this, not a stuck "asking…" state or a crash rendering `entry.answer.lines.map(...)`.
+const ASK_FAILED_ANSWER = {
+  title: "Couldn't get an answer",
+  lines: ['Something went wrong — please try asking again.'],
+};
+
+const isWellFormedAnswer = (a) =>
+  !!a && typeof a.title === 'string' && Array.isArray(a.lines) && a.lines.every((l) => typeof l === 'string');
 
 /**
  * The help coach: a button in the bottom-right corner that opens a panel of questions and answers.
@@ -21,6 +33,11 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
   // the same tick could both still read `pending === false` before either re-render lands. The
   // ref is set synchronously, so the second call is refused the instant the first one starts.
   const pendingRef = useRef(false);
+  // Kept current via the effect below so askWithModel() can re-read the *latest* game state after
+  // its network round trip, not whatever `state` this render's closure captured at the moment the
+  // question was asked (the game keeps advancing on its own timer while a question is in flight).
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
 
   const available = hints ? pendingHelp(state).length : 0;
 
@@ -44,8 +61,17 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
     setDraft('');
     try {
       // Resolves instantly for anything the local patterns already recognise — askWithModel
-      // only reaches for the network when there is genuinely no local match.
-      put(question, await askWithModel(question, state));
+      // only reaches for the network when there is genuinely no local match. Passing a getter
+      // (not `state` itself) is what lets it re-check the position after that round trip instead
+      // of answering against a snapshot from before it.
+      const answer = await askWithModel(question, () => stateRef.current);
+      put(question, isWellFormedAnswer(answer) ? answer : ASK_FAILED_ANSWER);
+    } catch (err) {
+      // askWithModel() is documented never to throw, but this is the coach's own thread of
+      // conversation with the player — a stuck "asking…" or a wall of nothing is a worse failure
+      // mode than showing a plain "try again", so this is defended anyway.
+      console.error('Coach: askWithModel failed', err);
+      put(question, ASK_FAILED_ANSWER);
     } finally {
       pendingRef.current = false;
       setPending(false);
@@ -96,6 +122,9 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
             {entry.question && <p className="coach-q">{entry.question}</p>}
             <div className="coach-a">
               <strong>{entry.answer.title}</strong>
+              {entry.answer.tile && (
+                <div className="coach-a-tile"><Tile tile={entry.answer.tile} small /></div>
+              )}
               {entry.answer.lines.map((line, j) => <p key={j}>{line}</p>)}
             </div>
           </div>

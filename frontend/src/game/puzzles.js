@@ -4,19 +4,7 @@
 // puzzle's answer can never disagree with what the live coach would say about the same hand.
 // Pure, like the rest of src/game/ — no React import, testable in plain Node.
 
-import { STANDARD_TILES, shuffle, sortTiles } from './tiles.js';
 import { shanten, bestDiscard } from './advisor.js';
-
-const RETRIES = 20;
-const RETRIES_FOR_DIFFICULTY = 60; // the rarest tier is ~17% of hands; this clears it >99.999% of the time
-
-/** A fresh 14-tile hand from a full standard 136-tile set — no bonus tiles, since a puzzle is a
- * frozen hand, not a live deal with a wall to set them aside into. */
-function randomHand() {
-  const tiles = [];
-  for (const t of STANDARD_TILES) for (let i = 0; i < 4; i++) tiles.push(t);
-  return sortTiles(shuffle(tiles).slice(0, 14));
-}
 
 /**
  * How hard a puzzle is: the number of distinct tiles that tie for the single best resulting
@@ -35,8 +23,9 @@ function difficultyOf(tieCount) {
 }
 
 /**
- * Turn a hand into a puzzle, or reject it. Pure and deterministic — pass a fixed hand in tests;
- * `generateDiscardPuzzle()` below is what draws a real random one.
+ * Turn a hand into a puzzle, or reject it. Pure and deterministic — used both by unit tests
+ * against a fixed hand, and by `puzzleLibrary.js` to derive each curated puzzle's answer and
+ * difficulty from the hand it's built around.
  *
  * Rejects (returns `null`) two degenerate cases: a hand that's already complete (nothing to
  * discard toward) and a hand where every distinct tile leaves the same resulting shanten (any
@@ -65,27 +54,6 @@ export function tryDiscardPuzzle(hand) {
     tieCount,
     difficulty: difficultyOf(tieCount),
   };
-}
-
-/**
- * Draw a random hand and turn it into a puzzle, retrying a bounded number of times against the
- * degenerate cases above. Returns `null` if nothing valid turns up within the retry budget —
- * callers can just ask again.
- *
- * Pass `difficulty` ('easy' | 'medium' | 'hard') to keep retrying until a puzzle of that exact
- * tier turns up. A returned puzzle's `difficulty` always matches what was requested — this never
- * falls back to a different tier, since callers (the progression UI) label the puzzle using the
- * difficulty they asked for, and a puzzle silently of a different tier would mean that label lies.
- * The rarest tier is still ~17% of hands, so `RETRIES_FOR_DIFFICULTY` clears it >99.999% of the
- * time; returning `null` on the remaining sliver is a truthful "try again," not a wrong answer.
- */
-export function generateDiscardPuzzle(difficulty) {
-  const retries = difficulty ? RETRIES_FOR_DIFFICULTY : RETRIES;
-  for (let i = 0; i < retries; i++) {
-    const puzzle = tryDiscardPuzzle(randomHand());
-    if (puzzle && (!difficulty || puzzle.difficulty === difficulty)) return puzzle;
-  }
-  return null;
 }
 
 /**
