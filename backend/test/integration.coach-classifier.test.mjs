@@ -43,8 +43,9 @@ test('an unusual phrasing makes it all the way through to the right local answer
     output: { message: { content: [{ text: 'rules.kong' }] } },
   }));
 
+  const s = state();
   const answer = await withFakeFetch(t, () =>
-    askWithModel('What do I do when I have four identical tiles?', state(), { classifyUrl: FAKE_URL }),
+    askWithModel('What do I do when I have four identical tiles?', () => s, { classifyUrl: FAKE_URL }),
   );
 
   assert.equal(answer.intent, 'rules.kong');
@@ -58,11 +59,12 @@ test('Bedrock unavailable end to end still resolves to the plain local fallback'
     throw new Error('ServiceUnavailableException');
   });
 
+  const s = state();
   const withoutModel = await import('../../frontend/src/game/coach.js').then((m) =>
-    m.ask('what is the weather like', state()),
+    m.ask('what is the weather like', s),
   );
   const answer = await withFakeFetch(t, () =>
-    askWithModel('what is the weather like', state(), { classifyUrl: FAKE_URL }),
+    askWithModel('what is the weather like', () => s, { classifyUrl: FAKE_URL }),
   );
 
   assert.equal(answer.intent, 'fallback');

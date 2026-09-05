@@ -1370,3 +1370,81 @@ immediately by the tests themselves failing, not discovered later.
    asked for it — every earlier UI change in this project was verified by hand in a browser only.
    `npm test` (game logic) and `npm run test:components` (UI) are two separate commands/runners by
    design (see Todo #1); worth folding into one CI step if this project ever adds CI.
+
+# PR #7 review: coach robustness (error handling, stale state, response validation)
+
+A review comment flagged three things in `Coach.jsx`/`askWithModel()` — code this PR touched
+(added the `tile` field / its rendering) but didn't originally write. Investigated each against the
+actual code before deciding what to do, rather than patching all three the same way by default.
+
+1. **No error handling** — if `askWithModel()` failed, the loading state (`pending`) would clear
+   (the `finally` already handled that) but no answer would ever appear — a silent no-op, not a
+   crash. `askWithModel()`/`ask()` are documented and, by inspection, actually never throw today,
+   but that's an internal contract a future change could break without anyone noticing at the call
+   site. Fixed with a `catch` that shows a plain "try again" answer instead of nothing.
+2. **Potentially stale game state** — real, and worth tracing precisely: `askWithModel()` only
+   reaches the network when the local patterns find no match, and while that classify request is in
+   flight (up to `CLASSIFY_TIMEOUT_MS`, 4s), the game keeps advancing on its own bot timer. The
+   final answer was computed from the `state` closed over at the moment the question was asked, not
+   the state when the model actually responded — so e.g. `adviceDiscard`'s own "not your turn yet"
+   guard couldn't catch a turn that changed *during* the wait, only one that had already changed
+   *before* asking. Decided (per the reviewer's own framing of the choice) that the answer should
+   reflect the position when the model responds, not when asked — a coach answering off a
+   several-seconds-stale hand is worse than a slightly slower one. Fixed.
+3. **No validation of the AI response** — traced the actual data flow before agreeing this was a
+   bug: the model's raw text never becomes UI content directly. It only selects an intent id (via
+   `INTENTS.find`, checked against a known list), and that intent's hardcoded local answer function
+   is what actually gets rendered — the same functions `ask()` already uses everywhere. Every one of
+   those returns a proper `{ title, lines }` shape by construction, so "a malformed response
+   crashing the UI" isn't reachable via the model today. Still added a cheap shape check at the
+   point `Coach.jsx` consumes the answer (the actual trust boundary here — an async result this
+   component didn't fully control the shape of), covering both this and #1 with one mechanism.
+
+## Todo
+
+- [x] 1. `frontend/src/game/coach.js` — `askWithModel(question, getState, opts)` takes a getter,
+     not a value; calls it once before the classify round trip and again after, so the final
+     `intent.answer(...)` uses the position at resolution time
+- [x] 2. `frontend/src/components/Coach.jsx` — `stateRef` kept current via a `useEffect`, passed to
+     `askWithModel` as `() => stateRef.current`; `askNow` wrapped in try/catch; a small
+     `isWellFormedAnswer()` check plus a shared `ASK_FAILED_ANSWER` fallback cover both the catch
+     path and a malformed-answer path with one mechanism
+- [x] 3. Updated every other `askWithModel(...)` call site to the new getter-based signature:
+     `frontend/test/coach.test.js` (2 existing tests) and
+     `backend/test/integration.coach-classifier.test.mjs` (2 tests) — each now calls it once to get
+     a concrete state object, then passes a getter closing over *that* object, not a fresh
+     `newGame()` per call (which would have silently changed the semantics being tested)
+- [x] 4. `frontend/test/coach.test.js` — new regression test: a fake `fetch` that mutates which
+     state `getState()` would return partway through the "network" call, asserting the final answer
+     reflects the *post*-response state (here, a turn that changed mid-flight correctly produces
+     "not your turn yet") rather than the pre-response one
+
+## Review
+
+### Test plan
+
+- `cd frontend && npm test` — 84/84 pass (83 previous + 1 new stale-state regression).
+- `cd frontend && npm run test:components` — 13/13 pass, unaffected (Coach.test.jsx's two tests
+  don't touch the classify/network path at all, so the getter-signature change didn't need any
+  changes there).
+- `cd backend && npm test` — 17/17 pass, unaffected (this suite is the Lambda side, not the
+  frontend's `askWithModel`).
+- `cd backend && npm run test:integration` — 2/2 pass — the one suite that actually exercises
+  `askWithModel()` against the real compiled Lambda, confirming the getter-signature change didn't
+  break the cross-package contract.
+- `cd frontend && npm run build` — clean.
+- Manual browser check: asked "What should I discard?" through the live coach after the change —
+  still resolves instantly (local match, no network), still shows the tile image added earlier this
+  round, answer text unchanged. No console errors beyond the same pre-existing Vite HMR proxy
+  artifact noted in the PR description.
+
+### Known limits
+
+1. **The stale-state fix only matters when a classifier backend is actually deployed.** With no
+   `VITE_CLASSIFY_INTENT_URL` configured (true for every environment this session has touched), the
+   network path is never taken at all, so this bug was previously untriggerable in practice —
+   still correct to fix given the code path exists, is exported, and is tested.
+2. **Point 3's shape check is defensive, not exercised by a failing-in-practice test** — by
+   inspection, nothing in the current codebase can actually produce a malformed answer, so there is
+   no realistic scenario to regression-test against. The check stays as insurance against a future
+   change breaking that invariant silently.

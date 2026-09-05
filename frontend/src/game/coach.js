@@ -343,12 +343,19 @@ async function classifyIntentRemote(question, url) {
  * Route a question exactly like `ask()`, but escalate to the model classifier when — and only
  * when — the local patterns found nothing. Always resolves; never throws.
  *
+ * Takes `getState()`, not a state value, and calls it twice: once before the classify round trip
+ * and again after. The game keeps moving on its own timer while that request is in flight (up to
+ * `CLASSIFY_TIMEOUT_MS`), so re-reading state after the await avoids answering against a position
+ * that's no longer current by the time the model responds — e.g. "not your turn yet" only catches
+ * a turn that changed *during* the wait if the check runs against the state that's true now, not
+ * the state at the moment the question was asked.
+ *
  * `classifyUrl` defaults to the configured endpoint and only ever needs overriding in tests
  * (frontend/test/integration/ wires it to a fake handler) — Coach.jsx always calls this with
  * just the two arguments.
  */
-export async function askWithModel(question, state, { classifyUrl = CLASSIFY_INTENT_URL } = {}) {
-  const local = ask(question, state);
+export async function askWithModel(question, getState, { classifyUrl = CLASSIFY_INTENT_URL } = {}) {
+  const local = ask(question, getState());
   if (local.intent !== 'fallback') return local;
 
   const intentId = await classifyIntentRemote(question, classifyUrl);
@@ -358,6 +365,6 @@ export async function askWithModel(question, state, { classifyUrl = CLASSIFY_INT
   const intent = INTENTS.find((i) => i.id === intentId);
   if (!intent) return local;
 
-  const answer = intent.answer(state);
+  const answer = intent.answer(getState());
   return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
 }
