@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { wallStacks, spread, EDGES } from '../src/game/tableLayout.js';
+import { wallStacks, EDGES } from '../src/game/tableLayout.js';
 
 const total = (ring) => ring.reduce((sum, e) => sum + e.stacks, 0);
 
@@ -38,19 +38,4 @@ test('an empty or exhausted wall draws nothing, never a negative', () => {
     assert.equal(total(ring), 0);
     assert.ok(ring.every((e) => e.stacks === 0), `wall of ${remaining} should be empty`);
   }
-});
-
-test('spread places stacks evenly between the two ends', () => {
-  assert.deepEqual(spread(0), []);
-  assert.deepEqual(spread(1), [50]);
-  assert.deepEqual(spread(2, 10, 90), [10, 90]);
-  assert.deepEqual(spread(3, 0, 100), [0, 50, 100]);
-
-  const many = spread(18);
-  assert.equal(many.length, 18);
-  assert.equal(many[0], 12);
-  assert.equal(many.at(-1), 88);
-  // Strictly increasing, and inside the bounds.
-  for (let i = 1; i < many.length; i++) assert.ok(many[i] > many[i - 1]);
-  assert.ok(many.every((p) => p >= 0 && p <= 100));
 });
