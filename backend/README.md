@@ -90,8 +90,10 @@ route: classifying one string needs no room, no connection, no game state,
 so it would be pure overhead to require joining a multiplayer session just
 to ask for help.
 
-The Lambda calls Amazon Bedrock (`amazon.nova-micro-v1:0` by default — cheap
-and fast, right-sized for a one-word classification task) with its own
+The Lambda calls Amazon Bedrock (`us.amazon.nova-micro-v1:0` by default —
+the US cross-region inference profile for Nova Micro, cheap and fast,
+right-sized for a one-word classification task; most regions no longer
+serve Nova by a bare on-demand model id) with its own
 intent catalogue (`shared/intents.json`, imported at build time — see below)
 and asks it to return exactly one of those ids, or `fallback`. **The model
 never writes what the player reads** — it only picks which of the coach's
@@ -104,9 +106,16 @@ answer is used instead; the coach never breaks, and works with zero backend
 deployed at all if `frontend/.env.template`'s `VITE_CLASSIFY_INTENT_URL` is
 left blank.
 
-Swap the model with `npx cdk deploy -c bedrockModelId=<another Bedrock model id>`
-if your account's model access differs (e.g. an Anthropic Claude Haiku model
-on Bedrock instead of Nova Micro).
+Swap the model with `npx cdk deploy -c bedrockModelId=<id>` if your account's
+model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
+if you deploy to eu-*, `apac.…` for ap-*), a bigger Nova (`us.amazon.nova-lite-v1:0`),
+or a single-region model such as an Anthropic Claude Haiku id. `-c agentModelId=`
+does the same for the post-hand review route independently. The `bedrock:InvokeModel`
+IAM policy adapts automatically (`lib/bedrockResources.ts`): a profile id gets the
+profile ARN plus the region-wildcarded base-model ARN, a bare id gets just the one
+foundation-model ARN. A cross-region profile whose `us.` / `eu.` / `apac.` prefix
+doesn't match the deploy region **fails `cdk synth`** with a fix hint, rather than
+deploying an IAM config that only breaks on the first Bedrock call.
 
 ### The intent catalogue is backend-owned, not client-supplied
 
@@ -184,8 +193,11 @@ npx cdk bootstrap
 # Preview the CloudFormation this will create
 npx cdk synth
 
-# Deploy to your default AWS region (defaults to ap-southeast-1 / Singapore
-# if CDK_DEFAULT_REGION isn't set — see bin/app.ts)
+# Deploys to us-east-1 unless CDK_DEFAULT_REGION is set (see bin/app.ts).
+# us-east-1 is where the hackathon sandbox's org policy permits Bedrock and
+# where the default model profile (us.amazon.nova-micro-v1:0) resolves. If
+# you change the region, also pass -c bedrockModelId / -c agentModelId with
+# that region's inference-profile prefix (eu. / apac.) or a single-region model.
 npx cdk deploy
 ```
 

@@ -28,10 +28,11 @@ import intentCatalog from "../shared/intents.json";
 
 const bedrock = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION || process.env.AWS_REGION });
 
-// Amazon Nova Micro: the cheapest/fastest Bedrock text model, well suited to
-// a one-word classification task like this one. Override via context/env if
-// your account's Bedrock model access differs.
-const MODEL_ID = process.env.BEDROCK_MODEL_ID || "amazon.nova-micro-v1:0";
+// Amazon Nova Micro (US cross-region inference profile): the cheapest/fastest
+// Bedrock text model, well suited to a one-word classification task. The CDK
+// stack always sets BEDROCK_MODEL_ID; this fallback only applies to a local
+// invoke. Match the profile prefix to the region (us./eu./apac.).
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || "us.amazon.nova-micro-v1:0";
 
 const MAX_QUESTION_LENGTH = 300;
 

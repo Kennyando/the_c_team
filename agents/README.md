@@ -47,7 +47,7 @@ var:
 
 | Var | Default | Notes |
 |---|---|---|
-| `AGENT_MODEL_ID` | falls back to `BEDROCK_MODEL_ID`, then `amazon.nova-micro-v1:0` | cheapest Bedrock text model; swap to `amazon.nova-lite-v1:0` or `anthropic.claude-haiku-4-5` if review prose is too stiff |
+| `AGENT_MODEL_ID` | falls back to `BEDROCK_MODEL_ID`, then `us.amazon.nova-micro-v1:0` | US cross-region inference profile for the cheapest Bedrock text model. Match the prefix to the region (`us.` / `eu.` / `apac.`). Swap to `us.amazon.nova-lite-v1:0` or an `anthropic.claude-haiku…` id if review prose is too stiff |
 | `BEDROCK_REGION` / `AWS_REGION` | — | region for the Bedrock client |
 
 `callModel()` uses a low temperature and a tight `maxTokens`, does not retry, and does not fan
