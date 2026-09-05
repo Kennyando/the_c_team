@@ -2002,3 +2002,34 @@ Collaborator review raised 5 points. Addressed:
 - [x] **Test coverage.** Added: the contract/golden test above, two grounding-guard tests, a
      fenced-```json``` reply test, and malformed-array-entries coverage in the contract fixtures.
      Zero-decisions / all-optimal / transport-failure cases were already covered.
+
+---
+
+# advisorVersion on decision records
+
+Next piece after the agent framework (PR #11), from the same review's follow-up list.
+
+Once `state.decisions` becomes a persistent, replayed data source, a consumer needs to know which
+evaluator produced each `optimal` / `recommended` value — `advisor.js` has already been through
+three grading epochs (shanten-only → value-aware → real ukeire) and will change again.
+
+## Todo
+
+- [x] `frontend/src/game/advisor.js` — `export const ADVISOR_VERSION = 'v3-ukeire'`, with a
+     comment on when to bump it (a change that would flip what counts as the best move)
+- [x] `frontend/src/game/engine.js` — import it; add `advisorVersion: ADVISOR_VERSION` to the
+     objects `recordDiscardDecision` and `recordClaimDecision` return
+- [x] `frontend/test/engine.test.js` — one test asserting both a `discard` and a `claim` entry
+     carry `advisorVersion === ADVISOR_VERSION`
+- [x] `docs/mvp-notes.md` #9 + `agents/README.md` follow-ups — note it's stamped, not yet consumed
+
+## Review
+
+Three-line change plus a test. `advisor.js` gains `ADVISOR_VERSION` next to its other exported
+tuning constants; `engine.js` (which already imports from `advisor.js`) stamps it onto both
+decision-entry shapes. No behaviour change — the review pipeline (`reviewCore.js` / `@kaki/agents`)
+doesn't read the field, and won't until decisions persist across sessions, at which point a review
+of old history should flag a grade from a superseded evaluator. `agents/README.md`'s follow-up
+list updated from "not recorded" to "stamped, not consumed".
+
+Tests: frontend 103/103 node + 13/13 component + build; agents 17/17; backend tsc clean.

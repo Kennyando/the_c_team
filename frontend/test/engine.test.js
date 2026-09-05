@@ -8,6 +8,7 @@ import { buildWall, sortTiles, tileName } from '../src/game/tiles.js';
 import { decompose, isWinningHand, getClaimsFor, getSelfKongs, bestClaim } from '../src/game/melds.js';
 import { scoreHand, settle, seatWindOf, pointsForTai, DEFAULT_RULES } from '../src/game/scoring.js';
 import { newGame, drawTile, discardTile, resolveClaims } from '../src/game/engine.js';
+import { ADVISOR_VERSION } from '../src/game/advisor.js';
 
 const rules = { ...DEFAULT_RULES };
 
@@ -219,6 +220,27 @@ test('drawing reduces the wall and hands the tile to the current player', () => 
 
 test('a new game starts with an empty decision log', () => {
   assert.deepEqual(newGame(rules, 0).decisions, []);
+});
+
+test('every recorded decision is stamped with the advisor version that graded it', () => {
+  const state = newGame(rules, 0);
+  state.players[0].hand = ['d1', 'd2', 'd3', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'wn', 'wn', 'we', 'ws'];
+  state.players[1].hand = ['wn', ...Array(12).fill('d9')];
+  state.players[2].hand = Array(13).fill('ws');
+  state.players[3].hand = Array(13).fill('ww');
+  state.turn = 0;
+  state.phase = 'act';
+
+  discardTile(state, 'we'); // a human discard -> a 'discard' entry
+  assert.equal(state.decisions.at(-1).type, 'discard');
+  assert.equal(state.decisions.at(-1).advisorVersion, ADVISOR_VERSION);
+
+  state.turn = 1;
+  state.phase = 'act';
+  discardTile(state, 'wn'); // opens a pong for the human -> a 'claim' entry on resolveClaims
+  resolveClaims(state, null);
+  assert.equal(state.decisions.at(-1).type, 'claim');
+  assert.equal(state.decisions.at(-1).advisorVersion, ADVISOR_VERSION);
 });
 
 test('a discard records an optimal decision when the human discards the recommended tile', () => {
