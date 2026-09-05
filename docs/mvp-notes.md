@@ -208,10 +208,12 @@ These are deliberate MVP boundaries, not defects:
    claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it
    yet — no UI, no post-game review. It exists so a future teaching agent (explaining reasoning,
    setting puzzles, reviewing a finished hand for mistakes) has real decision history to work from
-   instead of having to reconstruct it from the narrative log. `src/game/puzzles.js` (discard
-   puzzles, checked against `advisor.js` the same way) and its `Puzzle` panel are the first piece of
-   that agent actually built — but standalone: nothing yet connects a puzzle to `state.decisions`
-   or a player's own past mistakes, and there is no claim-puzzle or post-game-review counterpart.
+   instead of having to reconstruct it from the narrative log. `src/game/puzzles.js`/
+   `puzzleLibrary.js` (discard puzzles, checked against `advisor.js` the same way) and the `Puzzle`
+   screen are the first piece of that agent actually built — but standalone: nothing yet connects a
+   puzzle to `state.decisions` or a player's own past mistakes, there is no claim-puzzle or
+   post-game-review counterpart, and the library is a fixed 9 puzzles (3 per difficulty) with no
+   solved/unsolved tracking yet.
 
 ## Deferred to later phases
 

@@ -15,7 +15,9 @@ import ConfirmDialog from './components/ConfirmDialog.jsx';
 import ScoreSheet from './components/ScoreSheet.jsx';
 import Settings from './components/Settings.jsx';
 import Coach from './components/Coach.jsx';
+import Home from './components/Home.jsx';
 import Puzzle from './components/Puzzle.jsx';
+import Rules from './components/Rules.jsx';
 import useNarration from './hooks/useNarration.js';
 
 // Unhurried pacing — the "kopitiam mode" of proposal Section 6. There is no turn clock anywhere;
@@ -48,6 +50,11 @@ function botTurn(state) {
 }
 
 export default function App() {
+  // Visiting the site lands on Home, not straight into a live hand — 'home' | 'play' | 'puzzle' |
+  // 'rules'. Home renders without the app's topbar at all (it supplies its own title); the other
+  // two destinations get a topbar with a Home button so there's always a way back.
+  const [screen, setScreen] = useState('home');
+
   const [rules, setRules] = useState(DEFAULT_RULES);
   const [display, setDisplay] = useState({
     scale: 1.2, contrast: false, voice: false, tileStyle: 'traditional', coachHints: false,
@@ -56,11 +63,6 @@ export default function App() {
   const [state, setState] = useState(() => newGame(DEFAULT_RULES, 0));
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [showPuzzle, setShowPuzzle] = useState(false);
-  // Lifted here (rather than into Puzzle.jsx's own state) so it survives closing and reopening the
-  // panel — Puzzle.jsx unmounts every time showPuzzle goes false, but progress should only reset on
-  // a full page reload, same as the rest of this app's in-memory-only state.
-  const [puzzleProgress, setPuzzleProgress] = useState({ tier: 'easy', correctInTier: 0 });
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -79,9 +81,11 @@ export default function App() {
 
   useNarration(state.log, display.voice);
 
-  // The game loop. It only ever runs while nothing is waiting on the human.
+  // The game loop. It only ever runs while the Play screen is showing and nothing is waiting on
+  // the human — a bot must not keep playing turns while the player has wandered off to Puzzle or
+  // Rules (or Settings, or a confirm dialog).
   useEffect(() => {
-    if (state.phase === 'over' || showSettings || showPuzzle || confirm) return;
+    if (screen !== 'play' || state.phase === 'over' || showSettings || confirm) return;
 
     let step = null;
     if (state.phase === 'draw') step = drawTile;
@@ -91,7 +95,7 @@ export default function App() {
 
     const timer = setTimeout(() => setState((s) => advance(s, step)), PACE);
     return () => clearTimeout(timer);
-  }, [state, claiming, showSettings, showPuzzle, confirm]);
+  }, [screen, state, claiming, showSettings, confirm]);
 
   const apply = (fn) => setState((s) => advance(s, fn));
 
@@ -140,80 +144,86 @@ export default function App() {
   return (
     <TileStyleProvider value={display.tileStyle}>
     <div className="app">
-      <header className="topbar">
-        <h1>Kaki Mahjong</h1>
-        <span className="wall-count">{state.wall.length} tiles left in the wall</span>
-        <span className="spacer" />
-        <button type="button" onClick={newHand}>New hand</button>
-        <button type="button" onClick={() => setShowPuzzle(true)}>Puzzle</button>
-        <button type="button" className="primary" onClick={() => setShowSettings(true)}>
-          Settings
-        </button>
-      </header>
+      {screen !== 'home' && (
+        <header className="topbar">
+          <h1>Kaki Mahjong</h1>
+          {screen === 'play' && (
+            <span className="wall-count">{state.wall.length} tiles left in the wall</span>
+          )}
+          <span className="spacer" />
+          {screen === 'play' && <button type="button" onClick={newHand}>New hand</button>}
+          {screen === 'play' && (
+            <button type="button" className="primary" onClick={() => setShowSettings(true)}>
+              Settings
+            </button>
+          )}
+          <button type="button" onClick={() => setScreen('home')}>Home</button>
+        </header>
+      )}
 
-      <main className={`table view-${display.tableView}`}>
-        <Table state={state} />
+      {screen === 'home' && <Home onNavigate={setScreen} />}
+      {screen === 'puzzle' && <Puzzle />}
+      {screen === 'rules' && <Rules />}
 
-        {/* Outside the scene on purpose: your hand is never tilted or foreshortened. */}
-        <Hand
-          player={you}
-          dealer={state.dealer}
-          canDiscard={canDiscard}
-          lastDrawn={state.lastDrawn}
-          onSelect={onDiscard}
-          prompt={prompt}
-        >
-          {claiming && (
-            <CallBar
-              actions={state.claimOptions}
-              tile={state.pending?.tile}
-              onChoose={onClaim}
-              onPass={onPass}
+      {screen === 'play' && (
+        <>
+          <main className={`table view-${display.tableView}`}>
+            <Table state={state} />
+
+            {/* Outside the scene on purpose: your hand is never tilted or foreshortened. */}
+            <Hand
+              player={you}
+              dealer={state.dealer}
+              canDiscard={canDiscard}
+              lastDrawn={state.lastDrawn}
+              onSelect={onDiscard}
+              prompt={prompt}
+            >
+              {claiming && (
+                <CallBar
+                  actions={state.claimOptions}
+                  tile={state.pending?.tile}
+                  onChoose={onClaim}
+                  onPass={onPass}
+                />
+              )}
+              {!claiming && yourTurnActions.length > 0 && (
+                <CallBar actions={yourTurnActions} onChoose={onTurnAction} />
+              )}
+            </Hand>
+          </main>
+
+          <div className="log" aria-live="polite">{state.log.at(-1)}</div>
+
+          {/* Hidden while a dialog is up, so it never sits on top of a confirmation. */}
+          {!confirm && !showSettings && state.phase !== 'over' && (
+            <Coach state={state} voice={display.voice} hints={display.coachHints} />
+          )}
+
+          {confirm && (
+            <ConfirmDialog
+              title={confirm.title}
+              tile={confirm.tile}
+              onConfirm={confirm.run}
+              onCancel={() => setConfirm(null)}
             />
           )}
-          {!claiming && yourTurnActions.length > 0 && (
-            <CallBar actions={yourTurnActions} onChoose={onTurnAction} />
+
+          {showSettings && (
+            <Settings
+              display={display}
+              setDisplay={setDisplay}
+              rules={rules}
+              setRules={setRules}
+              onClose={() => setShowSettings(false)}
+              onNewHand={newHand}
+            />
           )}
-        </Hand>
-      </main>
 
-      <div className="log" aria-live="polite">{state.log.at(-1)}</div>
-
-      {/* Hidden while a dialog is up, so it never sits on top of a confirmation. */}
-      {!confirm && !showSettings && !showPuzzle && state.phase !== 'over' && (
-        <Coach state={state} voice={display.voice} hints={display.coachHints} />
-      )}
-
-      {confirm && (
-        <ConfirmDialog
-          title={confirm.title}
-          tile={confirm.tile}
-          onConfirm={confirm.run}
-          onCancel={() => setConfirm(null)}
-        />
-      )}
-
-      {showSettings && (
-        <Settings
-          display={display}
-          setDisplay={setDisplay}
-          rules={rules}
-          setRules={setRules}
-          onClose={() => setShowSettings(false)}
-          onNewHand={newHand}
-        />
-      )}
-
-      {showPuzzle && (
-        <Puzzle
-          progress={puzzleProgress}
-          setProgress={setPuzzleProgress}
-          onClose={() => setShowPuzzle(false)}
-        />
-      )}
-
-      {state.phase === 'over' && !showSettings && !showPuzzle && (
-        <ScoreSheet result={state.result} players={state.players} onNewHand={newHand} />
+          {state.phase === 'over' && !showSettings && (
+            <ScoreSheet result={state.result} players={state.players} onNewHand={newHand} />
+          )}
+        </>
       )}
     </div>
     </TileStyleProvider>

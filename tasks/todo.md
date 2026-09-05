@@ -1263,3 +1263,110 @@ unrelated change nobody asked for.
    Now documented in code and in the UI's own wording rather than implied by stronger language than
    the check actually performs; using ukeire as a tiebreak is real follow-up work, not attempted
    here.
+
+# Home page, curated puzzle library, and tile images in coach advice
+
+Full design plan is at `C:\Users\kenna\.claude\plans\open-rank-the-puzzles-drifting-lerdorf.md`.
+Summary here for the project record. Five asks in one message, scoped and confirmed with the user
+before writing any code (see the plan file for the exact questions asked): a home page so the site
+doesn't drop straight into a live hand; the puzzle feature reworked from PR #6's random generator
+into a curated library (3 puzzles per tier, chess.com-style, shown as a full table with opponents
+and a discard pile); tile images alongside the coach's discard/claim advice; and — raised mid-plan
+by the user — render-verifying component tests, which this repo had never had before.
+
+## Todo
+
+- [x] 1. Add `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `jsdom` as frontend
+     devDependencies; `frontend/vitest.config.js` (`environment: 'jsdom'`,
+     `include: ['test/**/*.test.jsx']` — never overlaps `npm test`'s `test/*.test.js` glob); new
+     `test:components` script. `npm test` (node:test, game logic) untouched.
+- [x] 2. `frontend/src/game/puzzleLibrary.js` — 9 curated puzzles (3 per tier), each hand pulled
+     from `tryDiscardPuzzle()`'s own output rather than invented; `bestTile`/`shantenAfterBest`/
+     `reasons`/`difficulty` derived at import time, not typed by hand, and the module throws if an
+     entry is degenerate or filed under the wrong tier
+- [x] 3. Removed from `frontend/src/game/puzzles.js`: `generateDiscardPuzzle()`, `randomHand()`,
+     `RETRIES`/`RETRIES_FOR_DIFFICULTY` — dead now that the library replaces random generation.
+     `tryDiscardPuzzle`/`checkDiscardAnswer`/`difficultyOf` stay; the library is built on them.
+- [x] 4. `frontend/src/components/Puzzle.jsx` reworked: a tier-tabs + numbered-puzzle picker, then
+     a solving view showing the puzzle as a full table (reusing `Table`/`Seat` with a small
+     synthesized state — opponents are placeholder face-down racks, `Table`/`Seat` never read an
+     opponent's actual tiles) plus the existing tap-to-answer row
+- [x] 5. `frontend/src/components/Home.jsx` (new) and `frontend/src/components/Rules.jsx` (new,
+     embeds `frontend/public/rules.pdf` — copied from the SPGG rulebook already used earlier this
+     session — in a plain `<iframe>`, no viewer library needed)
+- [x] 6. `frontend/src/App.jsx` — top-level `screen` state (`'home' | 'play' | 'puzzle' | 'rules'`);
+     Home renders without the app's topbar (it supplies its own title); Play/Puzzle/Rules share one
+     topbar with a Home button; the bot-turn effect now also checks `screen === 'play'` so a bot
+     can't keep moving while the player is off in Puzzle or Rules
+- [x] 7. `frontend/src/game/coach.js` — `adviceDiscard()`/`adviceClaim()` each gain a `tile` field
+     (additive; `ask()`/`askWithModel()` already spread the whole answer object through, so no
+     other change was needed for it to reach the UI); `frontend/src/components/Coach.jsx` renders a
+     `<Tile>` next to the title when `answer.tile` is present
+- [x] 8. New CSS: `.home-screen`, `.puzzle-screen`, `.rules-screen`, `.tier-tabs`/`.puzzle-grid`,
+     a base (non-`.dialog`-scoped) `.row`, `.coach-a-tile` — small, targeted additions in
+     `frontend/src/styles.css`, no new visual language
+- [x] 9. Component tests: `App.test.jsx`, `Home.test.jsx`, `Rules.test.jsx`, `Puzzle.test.jsx`,
+     `Coach.test.jsx` (render/interaction tests against real components, not snapshots); replaced
+     `puzzles.test.js`'s two removed-function tests with `puzzleLibrary.test.js` covering the new
+     module
+- [x] 10. `frontend/test/setup.js` + `setupFiles` in `vitest.config.js` — see "what went wrong"
+     below; needed for basic test isolation, not in the original plan
+
+## Review
+
+### What was built
+
+Exactly per the plan, with one implementation-time simplification: the plan assumed
+`Rules.jsx`/`Puzzle.jsx` would each carry their own "Home" button, but once `App.jsx` had a shared
+topbar for every non-Home screen, duplicating a Home button into each component would have been
+pure repetition — the topbar's single Home button covers all of them. `Puzzle`/`Rules` take no
+navigation props at all as a result; simpler than planned, not a deviation in substance.
+
+Each of the 9 curated puzzles' `hand` was pulled directly from real `tryDiscardPuzzle()` output
+(generated via a throwaway script while `generateDiscardPuzzle()` still existed, the same technique
+used to validate PR #6's difficulty metric), then hand-picked and frozen — not invented tile lists.
+`discards`/`wallCount` per puzzle are presentation only, authored for a plausible mid-hand look.
+
+### What went wrong (and the fix)
+
+The first component-test run failed 7 of 13 tests, all with the same shape: "found multiple
+elements" or "unable to find" errors that only made sense if DOM from a *previous* test in the same
+file was still mounted. Root cause: Testing Library's automatic per-test cleanup depends on
+detecting a global test framework, and this config runs with `globals: false` (matching this repo's
+existing explicit-import style everywhere else) — so cleanup was never registered, and every test
+after the first in a file ran against an accumulating DOM. Fixed with `frontend/test/setup.js`
+(explicit `afterEach(() => cleanup())`) wired in via `vitest.config.js`'s `setupFiles`, not by
+switching to `globals: true` — keeps the explicit-import convention intact everywhere else. Caught
+immediately by the tests themselves failing, not discovered later.
+
+### Test plan
+
+- `cd frontend && npm test` — 83/83 pass (the 81 from the last round + `puzzleLibrary.test.js`'s
+  4 new tests − 2 removed `generateDiscardPuzzle` tests from `puzzles.test.js`).
+- `cd frontend && npm run test:components` — 13/13 pass across the 5 new component test files.
+- `cd frontend && npm run build` — clean; confirms the PDF asset path and every new component
+  bundle correctly.
+- Manual browser walkthrough of the full plan's verification list: fresh load lands on Home, not a
+  live hand; Play works exactly as before (topbar, table, coach, settings); Puzzle's picker shows
+  3 numbered puzzles per tier and opening one renders the full table (opponent seats, the curated
+  discard pile) with a working tap-to-answer row, both a correct and an incorrect answer graded
+  correctly; "Choose another puzzle" and Home both navigate correctly; Rules shows the embedded PDF
+  rendered natively and scrollable; the coach's "what should I discard?" answer now shows the
+  recommended tile's image inline. No console errors beyond a Vite HMR websocket warning that's a
+  proxy artifact of the preview tooling, not an application issue. Confirmed by reading
+  `Coach.jsx`'s `speak()` call that voice narration only ever reads `title`/`lines` — the new `tile`
+  field was never wired into it, so narration needed no change and got none.
+
+### Known limits
+
+1. **No solved/unsolved tracking across the 9 puzzles.** Reworking `Puzzle.jsx` away from PR #6's
+   `progress`/`setProgress` (auto-advancing random tiers) means there's currently no memory of
+   which curated puzzles a player has already solved — picking "Puzzle 1" again after solving it
+   just re-serves the same puzzle. Not requested this round; noted rather than half-built.
+2. **Puzzle library is fixed at 3 per tier with no path to add more without a code change** — there
+   is no authoring tool, just the `RAW` object in `puzzleLibrary.js`. Fine for "3 puzzles each for
+   now" as asked; a larger library would want a less manual process for picking/verifying hands.
+3. **This is the repo's first component-testing setup**, added specifically because this round
+   asked for it — every earlier UI change in this project was verified by hand in a browser only.
+   `npm test` (game logic) and `npm run test:components` (UI) are two separate commands/runners by
+   design (see Todo #1); worth folding into one CI step if this project ever adds CI.

@@ -33,7 +33,9 @@ function adviceDiscard(state) {
       ? `That leaves you ${describeDistance(shantenAfter)}. ${tileName(alternatives[0])} is just as good.`
       : `That leaves you ${describeDistance(shantenAfter)}.`,
   );
-  return { title: 'Best discard', lines };
+  // `tile` alongside the text, not instead of it — Coach.jsx renders it as an image next to the
+  // words for a player who finds a picture faster to recognise than a tile's spoken name.
+  return { title: 'Best discard', lines, tile };
 }
 
 function adviceClaim(state) {
@@ -47,6 +49,7 @@ function adviceClaim(state) {
   return {
     title: `${claim.type.toUpperCase()} on ${tileName(state.pending.tile)}?`,
     lines: advice.lines,
+    tile: state.pending.tile,
   };
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { askWithModel, QUICK_QUESTIONS } from '../game/coach.js';
 import { pendingHelp, situationHint } from '../game/advisor.js';
 import { speak } from '../hooks/useNarration.js';
+import Tile from './Tile.jsx';
 
 /**
  * The help coach: a button in the bottom-right corner that opens a panel of questions and answers.
@@ -96,6 +97,9 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
             {entry.question && <p className="coach-q">{entry.question}</p>}
             <div className="coach-a">
               <strong>{entry.answer.title}</strong>
+              {entry.answer.tile && (
+                <div className="coach-a-tile"><Tile tile={entry.answer.tile} small /></div>
+              )}
               {entry.answer.lines.map((line, j) => <p key={j}>{line}</p>)}
             </div>
           </div>

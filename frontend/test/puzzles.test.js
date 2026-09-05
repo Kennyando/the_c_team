@@ -1,12 +1,12 @@
-// Discard puzzles: generation, rejection of degenerate hands, and answer checking.
+// Discard puzzles: turning a hand into a puzzle, rejecting degenerate hands, difficulty, and
+// answer checking. `puzzleLibrary.test.js` covers the curated library built on top of this.
 // Run with `npm test` from frontend/.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { bestDiscard } from '../src/game/advisor.js';
-import { isBonus } from '../src/game/tiles.js';
-import { tryDiscardPuzzle, generateDiscardPuzzle, checkDiscardAnswer } from '../src/game/puzzles.js';
+import { tryDiscardPuzzle, checkDiscardAnswer } from '../src/game/puzzles.js';
 
 test('an already-complete hand is rejected — there is nothing to discard toward', () => {
   const winning = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'c9', 'we', 'we'];
@@ -93,24 +93,4 @@ test('checkDiscardAnswer rejects a tile that leaves a worse shanten', () => {
 
   assert.equal(answer.correct, false);
   assert.ok(answer.shantenAfterChosen > puzzle.shantenAfterBest);
-});
-
-test('generateDiscardPuzzle() always returns a well-formed puzzle or null', () => {
-  for (let i = 0; i < 50; i++) {
-    const puzzle = generateDiscardPuzzle();
-    if (!puzzle) continue; // astronomically unlikely, but tryDiscardPuzzle() is allowed to say no
-    assert.equal(puzzle.hand.length, 14);
-    assert.ok(puzzle.hand.every((t) => !isBonus(t)), 'a puzzle hand should never contain a bonus tile');
-    assert.ok(puzzle.hand.includes(puzzle.bestTile), 'the best tile must actually be in the hand');
-  }
-});
-
-test('generateDiscardPuzzle(difficulty) always returns a puzzle of the requested tier', () => {
-  for (const difficulty of ['easy', 'medium', 'hard']) {
-    for (let i = 0; i < 20; i++) {
-      const puzzle = generateDiscardPuzzle(difficulty);
-      assert.ok(puzzle, `should find an '${difficulty}' puzzle within the retry budget`);
-      assert.equal(puzzle.difficulty, difficulty);
-    }
-  }
 });
