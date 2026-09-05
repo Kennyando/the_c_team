@@ -25,14 +25,3 @@ export function wallStacks(remaining) {
     return { edge, stacks: each + extra };
   });
 }
-
-/**
- * Evenly spaced positions along an edge, as percentages.
- * Used to lay the stacks out without hard-coding a position for each one.
- */
-export function spread(count, from = 12, to = 88) {
-  if (count <= 0) return [];
-  if (count === 1) return [(from + to) / 2];
-  const step = (to - from) / (count - 1);
-  return Array.from({ length: count }, (_, i) => from + i * step);
-}

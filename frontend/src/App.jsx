@@ -168,6 +168,8 @@ export default function App() {
       {screen === 'play' && (
         <>
           <main className={`table view-${display.tableView}`}>
+            <div className="log" aria-live="polite">{state.log.at(-1)}</div>
+
             <Table state={state} />
 
             {/* Outside the scene on purpose: your hand is never tilted or foreshortened. */}
@@ -192,8 +194,6 @@ export default function App() {
               )}
             </Hand>
           </main>
-
-          <div className="log" aria-live="polite">{state.log.at(-1)}</div>
 
           {/* Hidden while a dialog is up, so it never sits on top of a confirmation. */}
           {!confirm && !showSettings && state.phase !== 'over' && (
