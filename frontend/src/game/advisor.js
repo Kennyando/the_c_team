@@ -10,6 +10,16 @@ import { scoreHand, seatWindOf } from './scoring.js';
 import { keepValue } from './bots.js';
 
 /**
+ * A tag for the grading logic below — the version of `bestDiscard`/`claimAdvice` and the weights
+ * they use (`VALUE_PER_SHANTEN`, `UKEIRE_WEIGHT`, `estimateValue`, ukeire). `engine.js` stamps it
+ * onto every decision it records, so a stored decision's `optimal`/`recommended` fields stay
+ * interpretable after this evaluator changes — a review reading old history knows which grader
+ * produced them. Bump it whenever a change here would flip what counts as the best move: the
+ * three past epochs were shanten-only, then value-aware (`v2`), then real ukeire (`v3`).
+ */
+export const ADVISOR_VERSION = 'v3-ukeire';
+
+/**
  * How many useful tiles away from winning a hand is.
  * -1 means already complete, 0 means ready (one tile away), and higher is further out.
  *

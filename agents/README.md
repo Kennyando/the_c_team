@@ -90,11 +90,11 @@ output, so the two model-free paths can never drift.
   notes than the facts support; it doesn't yet verify each individual note maps to a specific
   decision whose engine-grade backs that classification. A stronger version would have review
   items carry a `decisionId` and validate each one against the graded decision it points at.
-- **`state.decisions` records no `advisorVersion`.** The review trusts the grade captured when
-  each move was made — correct, but `advisor.js` keeps evolving (value-aware scoring, ukeire,
-  future tuning). Once decisions persist across sessions (Phase 3+), decision records should
-  stamp which evaluator produced them. That's an `engine.js` change, out of scope for this
-  consumer.
+- **`advisorVersion` is stamped but not yet consumed.** Every decision record now carries
+  `advisorVersion` (`ADVISOR_VERSION` in `frontend/src/game/advisor.js`), so a review of stored
+  history can tell which grader produced its `optimal`/`recommended` fields. Nothing reads it yet
+  — within one in-memory session every decision shares one version. Once decisions persist across
+  sessions (Phase 3+), the review should flag or down-weight a grade from an older evaluator.
 
 ## Adding the next agent
 

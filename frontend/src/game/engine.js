@@ -6,7 +6,7 @@
 import { buildWall, isBonus, sortTiles, tileName } from './tiles.js';
 import { getClaimsFor, getSelfKongs, isWinningHand, bestClaim } from './melds.js';
 import { scoreHand, settle, seatWindOf } from './scoring.js';
-import { shanten, bestDiscard, evaluateDiscard, contextFor, claimAdvice, blendedTie } from './advisor.js';
+import { shanten, bestDiscard, evaluateDiscard, contextFor, claimAdvice, blendedTie, ADVISOR_VERSION } from './advisor.js';
 
 export const SEAT_NAMES = ['You', 'Ah Ma', 'Ah Gong', 'Ah Huat'];
 
@@ -132,6 +132,9 @@ function recordDiscardDecision(state, player, chosen) {
 
   return {
     type: 'discard',
+    // Which grader produced `recommended`/`optimal` below — so a review of stored history stays
+    // interpretable after advisor.js changes. See ADVISOR_VERSION in advisor.js.
+    advisorVersion: ADVISOR_VERSION,
     hand: [...player.hand],
     melds: player.melds.map((m) => ({ ...m })),
     chosen,
@@ -206,6 +209,7 @@ function recordClaimDecision(state, humanChoice) {
 
   return {
     type: 'claim',
+    advisorVersion: ADVISOR_VERSION, // see recordDiscardDecision / ADVISOR_VERSION in advisor.js
     pendingTile: claimedTile,
     discardedBy: state.pending.by,
     options,

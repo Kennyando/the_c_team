@@ -258,8 +258,10 @@ These are deliberate MVP boundaries, not defects:
    `discardTile()`/`checkDiscardAnswer()` already validated first) — this closes the gap for
    whoever calls it next.
 9. **`state.decisions` now has its first consumer: the post-hand review.** `engine.js` records a
-   structured entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every
-   discard and claim decision the human faces, alongside the narrative `state.log`. The end-of-hand
+   structured entry (chosen vs. `advisor.js`-recommended move, whether they matched, and an
+   `advisorVersion` tag — `ADVISOR_VERSION` in `advisor.js` — naming the grader that produced those
+   fields, so stored history stays interpretable after the evaluator changes) for every discard and
+   claim decision the human faces, alongside the narrative `state.log`. The end-of-hand
    ScoreSheet now shows a short review built from it (`src/game/review.js` → `HandReview.jsx`): what
    you played well, what to try next time, and one thing to focus on. The model-free assembly lives
    in `src/game/reviewCore.js` and is the *same* code the backend fallback runs (it re-imports it via
