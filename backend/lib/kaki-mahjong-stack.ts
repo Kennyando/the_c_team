@@ -208,7 +208,14 @@ export class KakiMahjongStack extends cdk.Stack {
     // defaults for a hackathon demo — override with `-c coachApiConcurrency=`,
     // `-c coachApiRateLimit=`, `-c coachApiBurstLimit=` if real usage needs
     // more headroom.
+    //
+    // `-c coachApiConcurrency=0` omits the reserved-concurrency cap entirely:
+    // a restricted account (e.g. a workshop sandbox) can have a Lambda
+    // concurrency limit low enough that reserving *any* leaves fewer than the
+    // 10 unreserved executions AWS requires account-wide, which fails the
+    // deploy. The API Gateway throttle and the Budget still bound cost.
     const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
+    const reservedConcurrentExecutions = coachApiConcurrency > 0 ? coachApiConcurrency : undefined;
 
     const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -218,7 +225,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "classifyIntent.ts"),
       environment: { BEDROCK_MODEL_ID: bedrockModelId },
-      reservedConcurrentExecutions: coachApiConcurrency,
+      reservedConcurrentExecutions,
     });
 
     classifyIntentFn.addToRolePolicy(
@@ -247,7 +254,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "reviewHand.ts"),
       environment: { AGENT_MODEL_ID: agentModelId },
-      reservedConcurrentExecutions: coachApiConcurrency,
+      reservedConcurrentExecutions,
     });
 
     reviewHandFn.addToRolePolicy(
