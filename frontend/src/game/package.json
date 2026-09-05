@@ -1,0 +1,8 @@
+{
+  "name": "@kaki/game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "The pure (no-React) Singapore Mahjong engine: tiles, melds, scoring, shanten/advisor, puzzles. Imported by the frontend app (via its own relative paths) and by the agents package."
+}

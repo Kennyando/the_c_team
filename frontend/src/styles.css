@@ -442,6 +442,29 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .limit-note { color: var(--accent); font-weight: 700; }
 [data-theme='contrast'] .limit-note { color: #000; }
 
+/* ---------- post-hand review ---------- */
+
+.hand-review {
+  margin: 16px 0 4px;
+  padding: 16px;
+  border: 3px solid var(--panel-edge);
+  border-radius: 14px;
+}
+.hand-review h3 { margin: 0 0 8px; font-size: calc(19px * var(--tile-scale)); }
+.review-loading { margin: 16px 0 4px; color: var(--muted); font-style: italic; }
+.review-headline { margin: 0 0 10px; font-weight: 700; }
+.review-label {
+  margin: 12px 0 4px;
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: calc(13px * var(--tile-scale));
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.hand-review ul { margin: 0; padding-left: 22px; }
+.hand-review li { margin: 4px 0; }
+.review-one-thing { margin: 12px 0 0; }
+
 /* ---------- narration log ---------- */
 
 .log {

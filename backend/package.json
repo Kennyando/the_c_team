@@ -24,6 +24,8 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
+    "@kaki/agents": "file:../agents",
+    "@kaki/game": "file:../frontend/src/game",
     "@aws-sdk/client-apigatewaymanagementapi": "^3.600.0",
     "@aws-sdk/client-bedrock-runtime": "^3.600.0",
     "@aws-sdk/client-dynamodb": "^3.600.0",
