@@ -129,6 +129,7 @@ function recordDiscardDecision(player, chosen) {
   const rec = bestDiscard(player);
   const rest = [...player.hand];
   rest.splice(rest.indexOf(chosen), 1);
+  const shantenAfterChosen = shanten(rest, player.melds);
 
   return {
     type: 'discard',
@@ -137,11 +138,13 @@ function recordDiscardDecision(player, chosen) {
     chosen,
     recommended: rec.tile,
     shantenBefore: shanten(player.hand, player.melds),
-    shantenAfterChosen: shanten(rest, player.melds),
+    shantenAfterChosen,
     shantenAfterRecommended: rec.shantenAfter,
     reasons: rec.reasons,
-    // A tie with the recommended tile (one of bestDiscard's `alternatives`) is not a mistake.
-    optimal: chosen === rec.tile || rec.alternatives.includes(chosen),
+    // Compare the resulting shanten directly, not membership in `alternatives` — that list is
+    // capped at two entries for the coach's UI text ("X is just as good"), so a four-way tie for
+    // best would wrongly flag the fourth tile as a mistake if used as the correctness signal.
+    optimal: shantenAfterChosen === rec.shantenAfter,
   };
 }
 
@@ -193,9 +196,9 @@ function recordClaimDecision(state, humanChoice) {
   const human = state.players[0];
   const claimedTile = state.pending.tile;
   const options = state.claimOptions.map((claim) => ({ claim, ...claimAdvice(human, claim, claimedTile) }));
-  // Both `chosen` and `recommended` come from (or, for `chosen`, are) the same `state.claimOptions`
-  // array elements, so reference equality is enough to tell whether the human took the call advised.
-  const recommended = options.find((o) => o.verdict === 'yes')?.claim ?? null;
+  // `claim` on each option (and `chosen`, when set) all come from the same `state.claimOptions`
+  // array elements, so reference equality is enough to tell which option the human took.
+  const yesClaims = options.filter((o) => o.verdict === 'yes').map((o) => o.claim);
   const chosen = humanChoice || null;
 
   return {
@@ -204,8 +207,14 @@ function recordClaimDecision(state, humanChoice) {
     discardedBy: state.pending.by,
     options,
     chosen,
-    recommended,
-    optimal: chosen === recommended,
+    // A single canonical answer for display, e.g. "you could have called X" — but see `optimal`
+    // below: claimAdvice() doesn't rank between two calls that both help, so when more than one
+    // option is legitimately good, this is only *a* correct answer, not the only one.
+    recommended: yesClaims[0] ?? null,
+    // Any positively-advised option is an acceptable outcome, not just the (arbitrary) first one —
+    // otherwise a hand with two good chow configurations would flag choosing the second as a
+    // mistake purely because of array order.
+    optimal: chosen === null ? yesClaims.length === 0 : yesClaims.includes(chosen),
   };
 }
 

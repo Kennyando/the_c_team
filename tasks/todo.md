@@ -832,3 +832,154 @@ nothing reads it yet.
    isolation (a hand assigned directly to `state.players[0].hand`); nothing exercises `decisions`
    accumulating correctly across many discards/claims in one real hand from `newGame()` to
    `finishHand()`.
+
+# PR #5 review fixes, and an assessment of the "Singapore rules" shanten request
+
+Two things came in together: two concrete review comments on PR #5's `optimal` logic (known limit
+#2 above, plus a second bug the reviewer caught), and a request to "adapt the shanten calculator
+for Singapore rules" against an attached SPGG competition rulebook (`mjrandrjan2024.pdf`). The two
+review fixes are small and unambiguous. The rulebook request needs a scope decision first — see
+below — so it isn't in the todo list yet.
+
+## Part A — the two review fixes (both confirmed reproducible, fixing now)
+
+**A1. Claim `optimal` only credits the first `'yes'` option.** Reproduced: a hand with three legal
+chow configurations on one discard, where the two *outer* ones both improve the hand
+(`verdict: 'yes'`) and the middle one doesn't —
+```
+hand:  b1 b2 b3 c1 c2 c3 d3 d4 d6 d7 we we wn   (seat 0)
+discard: d5, from seat 3 (the left-hand neighbour, so chow applies)
+claims:  chow d3-d4-d5 (yes) / chow d4-d5-d6 (no) / chow d5-d6-d7 (yes)
+```
+Today, choosing the `d5-d6-d7` chow is recorded as `optimal: false`, purely because `d3-d4-d5`
+happened to come first in `state.claimOptions` — a false-positive "mistake" exactly as described.
+Fix, per the reviewer's first suggested option (simpler than ranking the two `'yes'` options
+against each other, and `claimAdvice` has no ranking between two helpful calls to draw on anyway):
+treat **any** `'yes'`-verdict option as an acceptable outcome. `recommended` stays the first
+`'yes'` option (still useful as *a* concrete answer for display), but `optimal` no longer requires
+matching it exactly.
+
+**A2. Discard `optimal` uses `bestDiscard()`'s truncated `alternatives` list.** Confirmed:
+`bestDiscard()` caps `alternatives` at two tiles (`.slice(0, 2)`) because that list was written for
+the coach's UI text ("X is just as good"), never meant as a completeness signal. A hand with four
+tiles tied for the best resulting shanten would record the fourth as a mistake even though it
+provably isn't one. Fix, exactly as suggested: compare the underlying numbers instead of list
+membership — `shantenAfterChosen === rec.shantenAfter` (both already computed in
+`recordDiscardDecision`) — which is correct regardless of how many tiles tie.
+
+### Todo
+
+- [x] 1. `frontend/src/game/engine.js` — `recordDiscardDecision`: change `optimal` to
+     `shantenAfterChosen === rec.shantenAfter`; drop the now-unused reliance on `rec.alternatives`
+     for correctness (the field itself still comes back from `bestDiscard` unchanged and is fine
+     to keep recording, just not to gate `optimal` on)
+- [x] 2. `frontend/src/game/engine.js` — `recordClaimDecision`: compute the full list of
+     `'yes'`-verdict claims; keep `recommended` as the first one, but set
+     `optimal: chosen === null ? yesClaims.length === 0 : yesClaims.includes(chosen)`
+- [x] 3. `frontend/test/engine.test.js` — new regression test: the three-chow-option hand above,
+     asserting taking the *second* `'yes'` option (`d5-d6-d7`) is `optimal: true`, not just the
+     first
+- [x] 4. `frontend/test/engine.test.js` — new regression test: a discard with (at least) three
+     tiles tied for the best resulting shanten, asserting the tile *not* in `alternatives` (because
+     of the `.slice(0, 2)` cap) is still recorded `optimal: true`
+- [x] 5. Re-run `cd frontend && npm test` and `npm run build`
+
+## Part B — the "Singapore rules" shanten request: assessment before scoping any work
+
+I read `mjrandrjan2024.pdf` (SPGG's competition rulebook) and compared it against
+`frontend/src/game/advisor.js`'s `shanten()` and `melds.js`'s `isWinningHand()`/`decompose()`
+before touching anything, since the premise ("the shanten calculator isn't adapted for Singapore
+rules") is only half right and I don't want to build the wrong fix.
+
+**What the rulebook actually confirms:** every scored hand type it lists except one — toitoi/all-
+triplets ("Kam Kam Hu"), all-honours, 1-and-9-only, four kongs, half/full flush — is still
+structurally *four sets plus a pair*. `shanten()`'s formula (2 points per complete set, 1 per
+partial, budget of 8) already covers all of them; a triplet is as valid a "set" as a run to that
+function. **Seven pairs is not in this rulebook at all** — SPGG's "Kam Kam Hu" is all-triplets, a
+different hand, still 4-sets-shaped. So the specific claim "the shanten calculator isn't adapted
+for Singapore rules" doesn't hold for the standard hand shape; that part of `shanten()` needs no
+change.
+
+**What genuinely is missing:** **Thirteen Wonders** (rules 18 and 24j — a hand of all 13 distinct
+terminal/honour tiles plus one duplicate). That shape isn't 4-sets-plus-a-pair at all, and
+`shanten()`/`isWinningHand()` have no representation of it whatsoever — a player one tile from
+Thirteen Wonders gets exactly the same (bad) shanten number as someone with a scattered, useless
+hand. This is real and worth fixing.
+
+**Why I'm not just patching `shanten()` and calling it done:** `docs/mvp-notes.md`'s known
+simplification #2 currently says plainly "no special hands... not implemented," covering
+`isWinningHand()` (can't detect the win), `scoreHand()` (can't score it), and `shanten()`
+(can't measure distance to it) together, as one deliberate boundary. Adding Thirteen-Wonders
+*shanten* alone, without also teaching `isWinningHand()` to recognise a completed one, means the
+coach could tell a player "you're one tile away" and then the engine refuses to let them declare
+the win when they draw it — a worse, actively misleading experience than the current honest "not
+implemented." Properly closing this gap means three coupled pieces, not one:
+
+1. `melds.js` — an `isThirteenWonders(concealed, melds)` check (melds must be empty; concealed win
+   only, per how this hand is always played) alongside `isWinningHand`
+2. `advisor.js` — a Thirteen-Wonders distance function, and `shanten()` (or its caller) taking the
+   minimum of the standard distance and this one
+3. `scoring.js` — at minimum, a fixed limit-hand score for it (rule 24 prices every special hand at
+   a flat maximum), so a completed one settles correctly instead of falling through to whatever
+   `scoreHand()` currently does with a hand shape it's never seen
+
+None of this is large individually, but it's a real feature addition against a documented,
+deliberate MVP boundary — not a bug fix — so I'd rather confirm scope before writing code than
+guess. Seven pairs stays out regardless, since it isn't part of this ruleset.
+
+### Decision: hold off
+
+User's call: leave `shanten()`/`isWinningHand()` exactly as they are for now. `docs/mvp-notes.md`
+known simplification #2 already documents this honestly; no code changes for Part B in this round.
+Revisit if Thirteen Wonders comes up again. Only Part A (the two review-comment fixes) proceeds.
+
+## Review
+
+### What was fixed
+
+Reproduced both review comments against real code before changing anything (via a throwaway
+`node -e` script exercising `advisor.js`/`melds.js` directly), to confirm the exact conditions that
+trigger each false-positive rather than trusting the description alone.
+
+**A1 (claim `optimal`).** `recordClaimDecision` now filters `options` down to every `'yes'`-verdict
+claim (`yesClaims`) instead of just taking the first one. `recommended` is unchanged (still the
+first `'yes'` option, kept as a single concrete display answer since `claimAdvice()` has no way to
+rank two genuinely good calls against each other). `optimal` is now `yesClaims.includes(chosen)`
+when the human took a call, or `yesClaims.length === 0` when they passed — so taking *any*
+beneficial option reads as optimal, not just whichever happened to be first in
+`state.claimOptions`.
+
+**A2 (discard `optimal`).** `recordDiscardDecision` now compares `shantenAfterChosen ===
+rec.shantenAfter` directly — both numbers it was already computing — instead of checking whether
+`chosen` appears in `bestDiscard()`'s `alternatives` array. `alternatives` itself is untouched
+(still capped at two entries, still fine for the coach's explanatory text); it's just no longer
+used as a correctness signal for the decision log.
+
+### Test plan
+
+- `cd frontend && npm test` — 70/70 pass (68 previous + 2 new regression tests).
+  - New: `'taking the second of two beneficial claims is not a false-positive mistake'` — a hand
+    with three legal chows on one discard (`d3-d4-d5` yes / `d4-d5-d6` no / `d5-d6-d7` yes),
+    asserting the *second* `'yes'` option is `optimal: true`. This fails against the old code
+    (confirmed by reading the pre-fix logic against this exact hand before writing the fix).
+  - New: `'a discard tied for best is not a mistake even when bestDiscard() truncates it out of
+    alternatives'` — a hand with five lone-honour tiles all tied for the same resulting shanten,
+    discarding one of the two `bestDiscard()` truncates out of its two-entry `alternatives` list.
+    Also fails against the old code.
+  - All prior tests, including the two this PR previously flagged in `Known limits` as
+    unregression-tested, pass unchanged.
+- `cd frontend && npm run build` — exit 0.
+- No browser smoke test this round: nothing UI-observable changed (`state.decisions` is still
+  unconsumed by any component; only its internal `optimal` computation changed), and the
+  surrounding game loop was already verified live in the previous round on this same
+  `discardTile`/`resolveClaims` code path.
+
+### On the "Singapore rules" shanten request
+
+Assessed against the attached `mjrandrjan2024.pdf` (SPGG competition rulebook) and the actual
+`shanten()`/`isWinningHand()` code — see "Part B" above for the full reasoning. Summary: the
+standard-hand shanten math is not actually Singapore-specific and needs no change; the one real gap
+is Thirteen Wonders, explicitly named in the rulebook (rules 18, 24j) but entirely unrepresented in
+the current code. Seven pairs is not part of this ruleset and was correctly not requested for
+inclusion. Per the user's decision, no code changes were made for this — `docs/mvp-notes.md` known
+simplification #2 continues to document it as a deliberate, honest boundary rather than a defect.

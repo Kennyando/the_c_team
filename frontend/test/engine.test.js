@@ -266,6 +266,23 @@ test('a discard tied with the recommended tile is not read as a mistake', () => 
   assert.equal(entry.optimal, true);
 });
 
+test('a discard tied for best is not a mistake even when bestDiscard() truncates it out of alternatives', () => {
+  const state = newGame(rules, 0);
+  // 3 complete sets plus five lone honours: discarding any one of the five leaves the same
+  // shanten, but bestDiscard()'s `alternatives` list is capped at two entries (it's written for
+  // the coach's UI text, not as a completeness signal), so only two of the four ties show up
+  // there. `wn` and `dr` are the two left out.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'c7', 'c8', 'c9', 'we', 'ws', 'ww', 'wn', 'dr'];
+
+  discardTile(state, 'dr');
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.recommended, 'we');
+  assert.equal(entry.chosen, 'dr');
+  assert.equal(entry.shantenAfterChosen, entry.shantenAfterRecommended);
+  assert.equal(entry.optimal, true);
+});
+
 test('a bot discard is never added to the decision log', () => {
   const state = newGame(rules, 0);
   state.turn = 1;
@@ -340,6 +357,33 @@ test('taking a call that does not help is recorded as a mistake', () => {
   assert.equal(entry.chosen, claim);
   assert.equal(entry.recommended, null);
   assert.equal(entry.optimal, false);
+});
+
+test('taking the second of two beneficial claims is not a false-positive mistake', () => {
+  const state = newGame(rules, 0);
+  // Three legal chows on the same discard: d3-d4-d5 and d5-d6-d7 both advance the hand
+  // (verdict 'yes'); d4-d5-d6 does not. Regression for recording `optimal: false` on the second
+  // 'yes' option just because the first one happened to come first in state.claimOptions.
+  state.players[0].hand = ['b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'd3', 'd4', 'd6', 'd7', 'we', 'we', 'wn'];
+  state.players[3].hand = ['d5', ...Array(12).fill('ww')]; // seat 3 is seat 0's left neighbour
+  state.players[1].hand = Array(13).fill('ws');
+  state.players[2].hand = Array(13).fill('dr');
+  state.turn = 3;
+  state.phase = 'act';
+
+  discardTile(state, 'd5');
+  assert.deepEqual(
+    state.claimOptions.map((c) => c.tiles.join('-')),
+    ['d3-d4-d5', 'd4-d5-d6', 'd5-d6-d7'],
+  );
+  const second = state.claimOptions[2]; // d5-d6-d7 — the second beneficial option, not the first
+
+  resolveClaims(state, second);
+
+  const entry = state.decisions.at(-1);
+  assert.equal(entry.chosen, second);
+  assert.notEqual(entry.recommended, second, 'this only tests something if recommended picked the other one');
+  assert.equal(entry.optimal, true);
 });
 
 test('no decision is recorded when the human has no legal claim to make', () => {
