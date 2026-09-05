@@ -983,3 +983,283 @@ is Thirteen Wonders, explicitly named in the rulebook (rules 18, 24j) but entire
 the current code. Seven pairs is not part of this ruleset and was correctly not requested for
 inclusion. Per the user's decision, no code changes were made for this — `docs/mvp-notes.md` known
 simplification #2 continues to document it as a deliberate, honest boundary rather than a defect.
+
+# Puzzle engine (step 2 toward the teaching agent)
+
+Step 2 of the three-part teaching agent the user asked for (the structured decision log was step 1,
+since `state.decisions` isn't consumed by anything yet — see "Planned: structured decision log"
+earlier in this file). A puzzle presents a single frozen position and checks whether the player finds the
+same answer `advisor.js` would give — reusing exactly the same functions the live coach and the
+decision log already use, so a puzzle's "correct answer" can never disagree with what the coach
+would say about the same hand mid-game.
+
+**Scope decision: discard puzzles only, not claim puzzles, for this increment.** Same reasoning as
+scoping the decision log to discard+claim together only because both were needed for that PR —
+here, a discard puzzle is the simpler, self-contained case (one hand, no other seats, no discard
+history), and a full puzzle UI/flow doesn't exist yet for either kind. Claim puzzles are a natural
+next step once this exists to build on, not a blocker to it.
+
+**Scope decision: a new pure module, not an extension of `engine.js`.** A puzzle is a single frozen
+hand with no other player, no wall, no turn order — none of `engine.js`'s state shape applies. It
+belongs alongside `advisor.js`/`bots.js` as another pure, testable `src/game/` module with no React
+import, per this codebase's existing layering (`docs/mvp-notes.md`'s "Game engine... no React
+imports anywhere").
+
+**Scope decision: generation draws from a real 136-tile set, filtered for two degenerate cases.**
+A puzzle needs a *checkable* answer, so: reject a hand that's already complete (shanten `-1` —
+nothing to discard toward) and reject a hand where every distinct tile leaves the same resulting
+shanten (no signal — any answer would be "correct", which teaches nothing). Both are checked with
+`shanten()` from `advisor.js`, unmodified. No further "how interesting is this" scoring — that's
+tuning that's easy to add later against real usage and not worth guessing at now.
+
+**Scope decision: separate the deterministic core from the random draw.** `shuffle()` in
+`tiles.js` calls `Math.random()` directly with no seed hook, so a puzzle generated from a truly
+random hand can't be asserted against in a test. Splitting `tryDiscardPuzzle(hand)` (pure,
+deterministic, exported for tests to hand a fixed hand to) from `generateDiscardPuzzle()` (draws a
+real random hand, retries a bounded number of times if `tryDiscardPuzzle` rejects it) means the
+interesting logic is fully unit-testable without needing to fake randomness, and the outer
+function stays a thin wrapper.
+
+## Todo
+
+- [x] 1. `frontend/src/game/puzzles.js` — new module:
+     - `tryDiscardPuzzle(hand)` — pure. Returns `null` for the two degenerate cases above, else
+       `{ hand, shantenBefore, bestTile, shantenAfterBest, reasons }` (`bestTile`/`shantenAfterBest`/
+       `reasons` straight from `bestDiscard()`, `shantenBefore` from `shanten()`)
+     - `generateDiscardPuzzle()` — draws a random 14-tile hand from a full standard 136-tile set
+       (no bonus tiles — a puzzle is a frozen hand, not a live deal with a wall to set them aside
+       into), retries up to 20 times against `tryDiscardPuzzle`, returns `null` on the
+       (astronomically unlikely) case all 20 are degenerate
+     - `checkDiscardAnswer(puzzle, chosenTile)` — `{ correct, shantenAfterChosen }`, `correct`
+       computed the same way `engine.js`'s `recordDiscardDecision` now does:
+       `shantenAfterChosen === puzzle.shantenAfterBest`
+- [x] 2. `frontend/test/puzzles.test.js` — new test file (unit tests below)
+- [x] 3. `frontend/src/components/Puzzle.jsx` — minimal UI (added after the user asked for one,
+     see "Scope change" below): a modal, styled like `Settings.jsx`'s `.backdrop`/`.dialog`, showing
+     a generated puzzle's hand as tappable `Tile`s; tapping one shows "Correct!"/"Not quite" plus
+     the best tile and its first reason when wrong; "New puzzle" draws another, "Back to the game"
+     closes without affecting the live game underneath
+- [x] 4. `frontend/src/App.jsx` — a "Puzzle" header button opening `Puzzle.jsx`; the bot/turn timer
+     effect and `Coach`/`ScoreSheet` visibility gated on `showPuzzle` exactly the way they already
+     were on `showSettings`, so a puzzle can't run concurrently with a live turn
+- [x] 5. `docs/mvp-notes.md` — one line under the existing `state.decisions` note (known
+     simplification #9) marking the puzzle engine as built, now including a minimal UI
+
+## Planned unit tests (`frontend/test/puzzles.test.js`)
+
+- `tryDiscardPuzzle` returns `null` for an already-complete (winning) hand.
+- `tryDiscardPuzzle` returns `null` for a hand where every discard leaves the same shanten (a hand
+  of, e.g., all distinct isolated honours with no structure to protect).
+- `tryDiscardPuzzle` returns a well-formed puzzle for an ordinary hand with a genuine best
+  discard, matching `bestDiscard()`'s own answer for that hand directly.
+- `checkDiscardAnswer` returns `correct: true` for the puzzle's own `bestTile`.
+- `checkDiscardAnswer` returns `correct: true` for a tile tied with `bestTile` (reusing the same
+  five-lone-honours tied hand from the decision-log tests, confirming this doesn't repeat the
+  `alternatives`-truncation bug just fixed there).
+- `checkDiscardAnswer` returns `correct: false` for a tile that leaves a worse shanten.
+- `generateDiscardPuzzle()` (real randomness, no injected hand): called a few dozen times, always
+  returns either `null` or a puzzle whose `hand` has exactly 14 tiles, none of them bonus tiles,
+  and whose `bestTile` is actually in `hand`.
+
+## Scope change: minimal UI added
+
+Asked before starting whether to keep this engine-only (like the decision log) or add a minimal UI
+this round. User's call: add the UI, with unit tests for the engine it's built on. `puzzles.js`
+itself has no React dependency either way — the UI is a thin `Puzzle.jsx` consumer of it, so this
+didn't change any of the scope decisions above.
+
+## Review
+
+### What was built
+
+`frontend/src/game/puzzles.js`, exactly as scoped: `tryDiscardPuzzle(hand)` (pure), wrapped by
+`generateDiscardPuzzle()` (real randomness with bounded retries), and `checkDiscardAnswer()`
+(correctness by direct shanten comparison, not list membership — the same fix just made to
+`engine.js`'s decision log, applied here too since it's the same underlying question). 7 new unit
+tests in `frontend/test/puzzles.test.js`, all against hands reused or adapted from existing
+`advisor.test`/`engine.test` cases where possible rather than inventing new ones.
+
+`frontend/src/components/Puzzle.jsx` is a new modal, wired into `App.jsx` behind a "Puzzle" header
+button. It follows `Settings.jsx`'s existing modal conventions exactly (`.backdrop`/`.dialog`,
+`role="dialog"`) rather than introducing a new pattern, and reuses the existing `Tile` component
+for the hand display — no new CSS classes were needed. The bot-turn timer effect and the
+`Coach`/`ScoreSheet` visibility conditions in `App.jsx` now also check `showPuzzle`, matching how
+they already handled `showSettings`, so opening a puzzle mid-turn can't race with a bot move.
+
+### Test plan
+
+- `cd frontend && npm test` — 77/77 pass (70 previous + 7 new puzzle tests).
+- `cd frontend && npm run build` — exit 0.
+- Manual browser smoke test of the actual UI (not just the engine): opened the puzzle panel,
+  answered correctly (dimmed tiles, "Correct!"), generated a new puzzle, answered incorrectly
+  ("Not quite" plus the best tile and its reason), used "New puzzle" to confirm the answer state
+  resets, and "Back to the game" to confirm it closes without disturbing the live hand underneath.
+  No console errors. (Two earlier click attempts missed their target after a stray browser-side
+  zoom the tool itself introduced mid-session — resolved by reloading the page; not an app bug,
+  and not worth a line in Known limits below since it was a test-tooling artifact, not a code path.)
+- No new automated UI test framework was introduced. This repo's whole test suite is `node:test`
+  over pure `src/game/*.js` logic — no `.jsx` component has a dedicated test file today (`Coach.jsx`,
+  `Settings.jsx`, etc. are all verified by hand in a browser only). Adding React component-testing
+  infrastructure for one small modal would be a disproportionately large, precedent-setting
+  addition for this task; the manual smoke test above follows the existing convention instead.
+
+### Known limits
+
+1. **Discard puzzles only.** Claim puzzles (multiple legal calls on a discard, checked against
+   `claimAdvice()`) are a natural next increment, not attempted here.
+2. **No difficulty tuning.** The only filters are "not already complete" and "not every tile ties" —
+   a generated puzzle could still be trivially easy (an obviously dead honour tile) as often as a
+   genuinely hard read. Tuning "interesting" is real design work better done against actual usage
+   than guessed at now.
+3. **No connection to the decision log or puzzle history.** Puzzles are stateless and ephemeral —
+   nothing records which ones a player got right or wrong, so there's no "puzzles from your own
+   mistakes" yet, even though that was the original motivation named for step 1's `state.decisions`.
+   That link is still future work, not built in this round.
+4. **`docs/mvp-notes.md`'s "Testing" section test count is already stale** (says "59 cases," but the
+   frontend suite is at 77 after this and the two prior PRs) — pre-existing drift from before this
+   round, not something introduced here. Left alone rather than recounting the whole paragraph as a
+   side effect of an unrelated task; worth a dedicated pass if it keeps drifting.
+
+# Difficulty-ranked, progressive discard puzzles (closes Known limit #2 above)
+
+Full design plan (with the empirical validation behind the difficulty metric) is at
+`C:\Users\kenna\.claude\plans\open-rank-the-puzzles-drifting-lerdorf.md`. Summary here for the
+project record.
+
+The user asked to rank generated puzzles by "closeness of the tile's ranking in the shanten
+calculator," group them, and let a player progress from easy to hard. Before writing any code, I
+validated the obvious metric — the shanten gap between the best discard and the closest wrong one —
+against the real calculator across 20,000 randomly generated hands, and found it has **zero
+variance**: that gap is exactly 1 every single time, a structural property of shanten under
+single-tile removal. Switched (confirmed with the user) to **how many distinct tiles are exactly
+tied for the single best resulting shanten** — fewer ties means the right answer is sharply
+distinguished (hard), more ties means several discards are equally correct (easy) — which does
+produce a real, data-backed spread.
+
+## Todo
+
+- [x] 1. `frontend/src/game/puzzles.js` — `tryDiscardPuzzle` computes `tieCount` (replacing the old
+     separate `allTie` check with the same loop) and derives `difficulty` (`'hard'` ≤4, `'medium'`
+     ≤7, else `'easy'` — thresholds from real percentile cuts, not guessed)
+- [x] 2. `frontend/src/game/puzzles.js` — `generateDiscardPuzzle(difficulty)` retries (60x for a
+     specific tier vs. 20x unfiltered) until it finds one of the requested difficulty, falling back
+     to any valid puzzle rather than `null` if the tier truly never comes up
+- [x] 3. `frontend/test/puzzles.test.js` — new difficulty tests, using concrete hands with a
+     verified `tieCount` (a ready hand with one dead tile → hard; a scattered, far-from-ready hand
+     → easy) rather than a hardcoded difficulty label alone
+- [x] 4. `frontend/src/App.jsx` — `puzzleProgress` (`{ tier, correctInTier }`) lifted into App
+     state (not `Puzzle.jsx`'s own, since that component unmounts every time the panel closes) and
+     passed down
+- [x] 5. `frontend/src/components/Puzzle.jsx` — generates with the current tier, shows
+     "Easy · 1 / 3 solved"-style progress, advances `easy → medium → hard` (capped at `hard`) after
+     3 correct answers at a tier; a wrong answer doesn't move the counter
+
+## Review
+
+### What was built
+
+Exactly per the approved plan. The difficulty metric lives entirely inside `puzzles.js`; `App.jsx`
+and `Puzzle.jsx` only needed to thread a `difficulty` string through to `generateDiscardPuzzle()`
+and track/display progress — no changes to `advisor.js` (the coach's `bestDiscard()` is untouched,
+so the live coach and decision log are unaffected).
+
+### Test plan
+
+- `cd frontend && npm test` — 80/80 pass (77 previous + 3 new: two difficulty-assignment tests, one
+  difficulty-filtered-generation test; the two existing degenerate-rejection tests re-verified
+  since their logic was consolidated with the new `tieCount` computation, not just added alongside).
+- `cd frontend && npm run build` — exit 0.
+- Manual browser smoke test of the full progression, matching the plan's verification section
+  exactly: opened the panel (confirmed "Easy · 0 / 3 solved"), answered 3 puzzles correctly across
+  fresh "New puzzle" draws (confirmed the counter incrementing 0→1→2, then the tier flipping to
+  "Medium · 0 / 3 solved" on the 3rd), answered one incorrectly at Medium (confirmed "Not quite" —
+  the best tile named — and the counter *not* moving), closed and reopened the panel (confirmed the
+  tier/count survived, still "Medium · 1 / 3 solved"), and reloaded the page (confirmed it reset to
+  "Easy · 0 / 3 solved"). No console errors at any point.
+
+### Known limits
+
+1. **Tier thresholds are a first cut from simulation data, not from real play.** `tieCount <= 4` /
+   `<= 7` splits ~20,000 sampled hands into roughly 17% / 48% / 35% hard/medium/easy — reasonable
+   and non-degenerate, but not tuned against how a puzzle actually *feels* to solve.
+2. **No completion state once `hard` is reached.** Further correct answers at `hard` just keep
+   resetting the counter toward another `hard` puzzle — there's no "you've mastered this" moment,
+   by design for this round (kept simple; flagged in the plan, not discovered after the fact).
+3. **Progress is a single global track, not per-puzzle-type.** Only discard puzzles exist today, so
+   this doesn't matter yet, but a future claim-puzzle mode would need its own decision about whether
+   it shares this progress track or gets its own.
+
+# PR #6 review fixes (round 2)
+
+Three comments on the difficulty/progression work:
+
+1. `checkDiscardAnswer()` used `indexOf()` without checking for `-1` — a tile not in the puzzle's
+   hand would `splice(-1, 1)` and silently grade the *last* tile in the hand instead of rejecting
+   the input. Not reachable through today's UI (it only ever passes a tile from `puzzle.hand`), but
+   it's an exported game-layer function, so the invariant needed to be explicit.
+2. `generateDiscardPuzzle(difficulty)`'s fallback (return any valid puzzle if the requested tier
+   never turns up) meant a returned puzzle's `difficulty` wasn't actually guaranteed to match what
+   was asked for — and `Puzzle.jsx` labels the puzzle using the *requested* tier, not the puzzle's
+   own, so a fallback could show "Hard" while serving an Easy puzzle. Now user-facing progression
+   state, so a silent mismatch is worse than it looked when this was still an internal-only detail.
+3. Learner-facing wording ("best discard") overstated what's actually checked — equal shanten
+   doesn't guarantee equal hand quality (ties can differ in how many tiles would complete the hand
+   from there, i.e. ukeire, which nothing here accounts for).
+
+## Todo
+
+- [x] 1. `frontend/src/game/puzzles.js` — `checkDiscardAnswer` returns
+     `{ correct: false, shantenAfterChosen: null }` for a tile not in `puzzle.hand`, instead of
+     evaluating whatever `splice(-1, 1)` happens to remove
+- [x] 2. `frontend/src/game/puzzles.js` — `generateDiscardPuzzle(difficulty)` drops the fallback
+     entirely: returns `null` if the requested tier isn't found within the retry budget, so a
+     non-null result's `difficulty` always matches what was asked for
+- [x] 3. `frontend/src/components/Puzzle.jsx` — reworded the doc comment and the wrong-answer
+     message from "best discard" to "keeps you closest to winning" (matching `adviceDiscard`'s own
+     existing phrasing in `coach.js`, not new jargon), plus a code comment on `checkDiscardAnswer`
+     noting the shanten-optimal-not-holistic-optimal caveat directly
+- [x] 4. `frontend/test/puzzles.test.js` — regression test for an out-of-hand tile
+
+## Review
+
+### What was fixed
+
+**#1 and #2** were both small, mechanical fixes with an obvious correct answer, so implemented as
+described without further design discussion. For #2, removing the fallback was the reviewer's own
+preferred option (over having the UI treat a fallback as an explicitly different tier) since it's
+*less* code than what was there — the existing `!puzzle` UI branch ("Could not put together a
+puzzle just now") already handles a `null` result, so no new UI path was needed either.
+
+**#3**: reworded `Puzzle.jsx`'s doc comment and its wrong-answer text to "keeps you closest to
+winning" rather than "best discard" — deliberately reusing language `advisor.js`'s own
+`bestDiscard()` comment already uses ("the tile whose loss keeps you closest to winning"), rather
+than inventing new phrasing or introducing raw "shanten" jargon into learner-facing text (this
+app's existing coach UI never surfaces the word "shanten" to a player either — `describeDistance()`
+in `advisor.js` always renders it as "N tiles from winning"). Did **not** rename `advisor.js`'s
+exported `bestDiscard()` function or touch any of the live coach's own wording (`Coach.jsx`,
+`coach.js`) — the reviewer's comment was specifically about the new learner-facing puzzle text, and
+renaming the coach's established terminology across the rest of the app would be a much larger,
+unrelated change nobody asked for.
+
+### Test plan
+
+- `cd frontend && npm test` — 81/81 pass (80 previous + 1 new: the out-of-hand-tile regression).
+- `cd frontend && npm run build` — exit 0.
+- Manual browser check of the reworded wrong-answer text specifically (not just a re-run of the
+  earlier progression smoke test): triggered a wrong answer and confirmed the dialog reads
+  "East Wind keeps you closest to winning. It is a lone wind or dragon..." — the reasons text
+  itself was untouched, only the discard-naming sentence in front of it changed. No console errors.
+
+### Known limits
+
+1. **`generateDiscardPuzzle(difficulty)` returning `null` is still not covered by a dedicated
+   test** — doing so deterministically would need injecting the hand generator for testability,
+   which felt like more machinery than a <0.001%-probability edge case warrants right now. The
+   existing property-based test (calls it 20× per tier) covers the happy path; the code change
+   itself (removing the silent fallback) is what actually closes the reviewer's concern, independent
+   of what the test can prove.
+2. **Ukeire (improving-tile count) is still not used to break same-shanten ties**, as the reviewer
+   noted — `checkDiscardAnswer()`'s "correct" remains shanten-optimal, not holistic-play-optimal.
+   Now documented in code and in the UI's own wording rather than implied by stronger language than
+   the check actually performs; using ukeire as a tiebreak is real follow-up work, not attempted
+   here.

@@ -15,6 +15,7 @@ import ConfirmDialog from './components/ConfirmDialog.jsx';
 import ScoreSheet from './components/ScoreSheet.jsx';
 import Settings from './components/Settings.jsx';
 import Coach from './components/Coach.jsx';
+import Puzzle from './components/Puzzle.jsx';
 import useNarration from './hooks/useNarration.js';
 
 // Unhurried pacing — the "kopitiam mode" of proposal Section 6. There is no turn clock anywhere;
@@ -55,6 +56,11 @@ export default function App() {
   const [state, setState] = useState(() => newGame(DEFAULT_RULES, 0));
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPuzzle, setShowPuzzle] = useState(false);
+  // Lifted here (rather than into Puzzle.jsx's own state) so it survives closing and reopening the
+  // panel — Puzzle.jsx unmounts every time showPuzzle goes false, but progress should only reset on
+  // a full page reload, same as the rest of this app's in-memory-only state.
+  const [puzzleProgress, setPuzzleProgress] = useState({ tier: 'easy', correctInTier: 0 });
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -75,7 +81,7 @@ export default function App() {
 
   // The game loop. It only ever runs while nothing is waiting on the human.
   useEffect(() => {
-    if (state.phase === 'over' || showSettings || confirm) return;
+    if (state.phase === 'over' || showSettings || showPuzzle || confirm) return;
 
     let step = null;
     if (state.phase === 'draw') step = drawTile;
@@ -85,7 +91,7 @@ export default function App() {
 
     const timer = setTimeout(() => setState((s) => advance(s, step)), PACE);
     return () => clearTimeout(timer);
-  }, [state, claiming, showSettings, confirm]);
+  }, [state, claiming, showSettings, showPuzzle, confirm]);
 
   const apply = (fn) => setState((s) => advance(s, fn));
 
@@ -139,6 +145,7 @@ export default function App() {
         <span className="wall-count">{state.wall.length} tiles left in the wall</span>
         <span className="spacer" />
         <button type="button" onClick={newHand}>New hand</button>
+        <button type="button" onClick={() => setShowPuzzle(true)}>Puzzle</button>
         <button type="button" className="primary" onClick={() => setShowSettings(true)}>
           Settings
         </button>
@@ -173,7 +180,7 @@ export default function App() {
       <div className="log" aria-live="polite">{state.log.at(-1)}</div>
 
       {/* Hidden while a dialog is up, so it never sits on top of a confirmation. */}
-      {!confirm && !showSettings && state.phase !== 'over' && (
+      {!confirm && !showSettings && !showPuzzle && state.phase !== 'over' && (
         <Coach state={state} voice={display.voice} hints={display.coachHints} />
       )}
 
@@ -197,7 +204,15 @@ export default function App() {
         />
       )}
 
-      {state.phase === 'over' && !showSettings && (
+      {showPuzzle && (
+        <Puzzle
+          progress={puzzleProgress}
+          setProgress={setPuzzleProgress}
+          onClose={() => setShowPuzzle(false)}
+        />
+      )}
+
+      {state.phase === 'over' && !showSettings && !showPuzzle && (
         <ScoreSheet result={state.result} players={state.players} onNewHand={newHand} />
       )}
     </div>
