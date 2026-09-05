@@ -226,7 +226,7 @@ export default function TileFace({ tile }) {
       )}
 
       {spec.kind === 'wind' && (
-        <text {...CENTRE_TEXT} x="50" y="94" fontSize="76" fill={INK}>{spec.glyph}</text>
+        <text {...CENTRE_TEXT} x="50" y="94" fontSize="76" fill={BLUE}>{spec.glyph}</text>
       )}
 
       {spec.kind === 'dragon' && (
