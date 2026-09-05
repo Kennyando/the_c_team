@@ -1,0 +1,16 @@
+{
+  "name": "@kaki/agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "types": "types/index.d.ts",
+  "description": "AI agent framework for Kaki Mahjong. A deterministic context builder feeds ground truth to one Bedrock call, whose output is strictly validated; any failure degrades to a deterministic, model-free result. See README.md.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@kaki/game": "file:../frontend/src/game",
+    "@aws-sdk/client-bedrock-runtime": "^3.600.0"
+  }
+}

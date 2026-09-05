@@ -212,6 +212,33 @@ export class KakiMahjongStack extends cdk.Stack {
       }),
     );
 
+    // The post-hand review agent (@kaki/agents, bundled from ../../agents). Same posture as
+    // classify-intent: stateless HTTP, one Bedrock call whose output is strictly validated, any
+    // failure degrading to a deterministic model-free review. Shares this route's rate caps and
+    // the Budget below. `agentModelId` defaults to the same model as classify-intent; override
+    // with `-c agentModelId=amazon.nova-lite-v1:0` (or a Claude Haiku model id) if review prose
+    // needs to be richer once it's been tested.
+    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || bedrockModelId;
+
+    const reviewHandFn = new lambdaNode.NodejsFunction(this, "ReviewHandFn", {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(15), // one model call, then assembly; comfortably under this
+      logRetention: logs.RetentionDays.ONE_WEEK,
+      bundling: { minify: true, sourceMap: true },
+      entry: path.join(__dirname, "..", "lambda", "reviewHand.ts"),
+      environment: { AGENT_MODEL_ID: agentModelId },
+      reservedConcurrentExecutions: coachApiConcurrency,
+    });
+
+    const agentModelArn = `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${agentModelId}`;
+    reviewHandFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: [agentModelArn],
+      }),
+    );
+
     const httpApi = new apigwv2.HttpApi(this, "CoachApi", {
       apiName: `kaki-mahjong-coach-${envName}`,
       corsPreflight: {
@@ -229,6 +256,11 @@ export class KakiMahjongStack extends cdk.Stack {
       path: "/classify-intent",
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2i.HttpLambdaIntegration("ClassifyIntentIntegration", classifyIntentFn),
+    });
+    httpApi.addRoutes({
+      path: "/review-hand",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2i.HttpLambdaIntegration("ReviewHandIntegration", reviewHandFn),
     });
 
     new apigwv2.HttpStage(this, "CoachApiDefaultStage", {
@@ -342,15 +374,16 @@ export class KakiMahjongStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    // classifyIntent.ts now returns a 5xx for a genuine Bedrock infrastructure failure (throttled,
-    // unavailable, access denied) rather than folding it into the same 200 a normal "no match"
-    // gets. The handler catches that error and returns a response rather than throwing, so it
-    // never trips the Lambda's own error metric — the 5xx only shows up on the API route itself.
-    // CoachApi has exactly one route, so its server-error count is this route's server-error count.
-    const classifyIntentServerErrors = httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
-    new cloudwatch.Alarm(this, "ClassifyIntentServerErrorAlarm", {
-      alarmName: `kaki-mahjong-classify-intent-5xx-${envName}`,
-      metric: classifyIntentServerErrors,
+    // Both CoachApi handlers (classifyIntent.ts, reviewHand.ts) return a 5xx for a genuine
+    // infrastructure failure rather than folding it into a normal 200. Each catches its own error
+    // and returns a response rather than throwing, so neither trips its Lambda's error metric —
+    // the 5xx only shows up on the API itself. API Gateway v2 has no per-route 5xx metric, so one
+    // alarm covers the whole (small, two-route) CoachApi: any sustained 5xx here means one of the
+    // model-backed routes is failing and someone should look.
+    const coachApiServerErrors = httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
+    new cloudwatch.Alarm(this, "CoachApiServerErrorAlarm", {
+      alarmName: `kaki-mahjong-coach-api-5xx-${envName}`,
+      metric: coachApiServerErrors,
       threshold: 5,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
@@ -362,6 +395,7 @@ export class KakiMahjongStack extends cdk.Stack {
     // ---------------------------------------------------------------------
     new cdk.CfnOutput(this, "WebSocketUrl", { value: stage.url });
     new cdk.CfnOutput(this, "ClassifyIntentUrl", { value: `${httpApi.apiEndpoint}/classify-intent` });
+    new cdk.CfnOutput(this, "ReviewHandUrl", { value: `${httpApi.apiEndpoint}/review-hand` });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "AssetsBucketName", { value: assetsBucket.bucketName });

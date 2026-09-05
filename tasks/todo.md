@@ -1866,3 +1866,116 @@ on what timeline. That's a separate, larger piece of work (defining what "margin
 difficulty score, calibrating it via the same simulation methodology already established in this
 project, re-verifying the puzzle library and test fixtures against it) — this entry exists so that
 work has a clear rationale to start from whenever it's picked up, not so it happens automatically.
+
+---
+
+# AI agent framework + post-hand review agent
+
+The empty `agents/` placeholder plus a proposed LangGraph.js + Bedrock + DynamoDB sketch. Goal: a
+right-sized framework that fits what the repo already is, plus one working agent proving it, on the
+cheapest Bedrock model until testing justifies more. Plan approved at
+`.claude/plans/open-can-you-propose-shiny-curry.md`.
+
+## Decisions (confirmed with user)
+
+1. No LangGraph yet — the three sketched "graphs" are linear pipelines; start with a plain
+   context-builder -> one Bedrock Converse call -> strict validator, mirroring `classifyIntent.ts`.
+   Keep the directory shape so a graph can drop in later.
+2. Build the post-hand **Review** agent first — its input (`state.decisions`) already exists, it's
+   not latency-sensitive, and the model only phrases facts the engine already graded.
+3. Model: keep `amazon.nova-micro-v1:0` (repo default, cheapest). One env var `AGENT_MODEL_ID`.
+4. Share the engine via a `package.json`+`index.js` barrel added to `frontend/src/game/` — no file
+   moves.
+5. "Tools" are deterministic context providers that run before the model, not LLM-callable tools.
+6. "Memory" is an interface with a no-op impl (DynamoDB needs accounts — Phase 3+).
+
+## Todo
+
+- [x] `frontend/src/game/package.json` + `index.js` — `@kaki/game` barrel (no file moves; frontend
+     keeps its relative imports)
+- [x] `agents/` package — `package.json` (`file:` dep on `@kaki/game`), `types/index.d.ts` for the
+     TS backend
+- [x] `agents/src/model.js` — the ONLY model call: Bedrock Converse, `AGENT_MODEL_ID`, low temp,
+     tight maxTokens, `parseJsonObject` helper
+- [x] `agents/src/schema.js` — `ReviewResult` shape + strict `isReviewResult` validator +
+     `normalizeReviewResult`
+- [x] `agents/src/context/decisionContext.js`, `rulesContext.js` — pure ground-truth builders over
+     `state.decisions` / `state.rules`
+- [x] `agents/src/review/{prompt,deterministic,reviewHand}.js` — the pipeline; any failure ->
+     `deterministicReview`
+- [x] `agents/src/memory/memory.js` — `createMemory()` no-op interface
+- [x] `agents/src/index.js` barrel + `agents/README.md` (framework doc, why-not-LangGraph, how to
+     add the next agent)
+- [x] `agents/test/reviewHand.test.js` — 7 cases, Bedrock mocked (empty log, useModel:false, clean
+     hand, valid reply, malformed reply, schema-violating reply, Bedrock throwing)
+- [x] `backend/lambda/reviewHand.ts` — thin handler, `{ decisions, rules }` -> `runReview` -> JSON,
+     502 only on genuinely unexpected error
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `ReviewHandFn` + `/review-hand` route on the existing
+     `CoachApi`, reusing the throttle/reserved-concurrency, scoped Bedrock IAM (agent model ARN),
+     the Budget scope; renamed the 5xx alarm to `CoachApiServerErrorAlarm` (now covers both
+     routes — API GW v2 has no per-route 5xx metric); `ReviewHandUrl` output
+- [x] `backend/package.json` — `file:` deps on `@kaki/agents` + `@kaki/game` so esbuild bundles them
+- [x] `frontend/src/game/review.js` — `localReview()` (offline summary, shape-compatible with the
+     backend `deterministicReview`) + `postHandReview()` network wrapper (falls back to local on
+     no-URL / non-2xx / timeout / malformed)
+- [x] `frontend/src/components/HandReview.jsx` + `ScoreSheet.jsx` (accepts `children`) + `App.jsx`
+     (renders it at `phase === 'over'`) + `styles.css` (`.hand-review`)
+- [x] `frontend/.env.template` — optional `VITE_REVIEW_URL`
+- [x] `docs/mvp-notes.md` — rewrote known-limitation #9 (`state.decisions` now has its first
+     consumer)
+
+## Review
+
+### What was built
+
+A small, deliberately un-clever agent framework in `agents/` (`@kaki/agents`), and the first agent
+on it: a **post-hand review** shown in the end-of-hand ScoreSheet.
+
+**Framework shape** (one pipeline, no LangGraph): deterministic context builders restate the facts
+the engine already graded -> one Bedrock Converse call phrases them warmly -> the output is
+strictly validated against `schema.js` -> anything that doesn't fit (bad shape, model error, no
+model configured) falls back to a model-free `deterministicReview`. This is the same
+"the model never writes the authoritative content" guarantee `backend/lambda/classifyIntent.ts`
+already established. `src/model.js` is the only place a model is called; the model is one env var
+(`AGENT_MODEL_ID`, default `amazon.nova-micro-v1:0`).
+
+**Engine sharing, no refactor**: `frontend/src/game/` gained a `package.json`+`index.js` barrel so
+it resolves as `@kaki/game`. The frontend app is untouched (it still uses relative imports).
+`agents/` and `backend/` depend on it via `file:` links; esbuild bundles it into the Lambda at
+synth (`cdk synth` proves this).
+
+**Review agent**: `runReview({ decisions, rules })` -> `{ headline, goodMoves[], improvements[],
+oneThingToTry, modelAssisted }`. Deployed as `backend/lambda/reviewHand.ts` on the existing
+`CoachApi` HTTP API — same throttle, reserved concurrency, scoped Bedrock IAM, Budget, and (now
+API-wide) 5xx alarm as classify-intent. The frontend calls it only when `VITE_REVIEW_URL` is set;
+unset, `frontend/src/game/review.js`'s `localReview()` assembles the same shape offline with no
+network call. `HandReview.jsx` renders it inside the ScoreSheet (which gained a `children` prop).
+
+**Not built** (out of scope, in the plan): LangGraph adoption, coach-answer generation, the
+strategy bot opponent, DynamoDB player memory (needs accounts), and de-duplicating
+`backend/lambda/mahjong/` against `@kaki/game` (tile-label encodings differ — `"5-dot"` vs `"d5"`).
+
+### Verification
+
+- `cd agents && npm install && npm test` — 7/7 pass, Bedrock mocked.
+- `cd frontend && npm test` — 102/102 (was 59; +8 review + others), `npm run test:components` 13/13,
+  `npm run build` clean. The nested `src/game/package.json` does not break Vite or vitest.
+- `cd backend && npm install && npm run build && npx cdk synth -c envName=dev` — clean; template has
+  `ReviewHandFn` (ReservedConcurrentExecutions 2, `AGENT_MODEL_ID`), the scoped
+  `bedrock:InvokeModel` policy, `POST /review-hand` on `CoachApi`, `CoachApiServerErrorAlarm`,
+  `ReviewHandUrl`. `cd backend && npm test` still 17/17.
+- End-to-end smoke: a throwaway script played a full hand via `engine.js`, then ran both
+  `localReview()` and `runReview()` (AGENT_MODEL_ID unset) over the real `state.decisions` — both
+  produced well-formed, shape-compatible reviews.
+- Browser: dev server boots with no console errors; auto-drove a hand to completion and confirmed
+  the review panel renders in the ScoreSheet ("How that hand went" + headline + "NEXT TIME" bullets
+  + "One thing to try"), styled and scaling with the size slider, on the offline `localReview` path.
+
+### Known limits
+
+- Not deployed (`cdk synth` only) and never run against real Bedrock — Nova Micro's prose quality
+  for review write-ups is untested; `AGENT_MODEL_ID` is the single knob to try `amazon.nova-lite-v1:0`
+  or a Claude Haiku model on Bedrock if it's too stiff.
+- `localReview` (frontend) and `deterministicReview` (agents) are kept shape-compatible by hand, not
+  by a shared module (the agents path can't be imported into the browser bundle — it pulls the AWS
+  SDK). A drift-guard test like `coach.js` <-> `intents.json` could pin them if this matters later.

@@ -257,17 +257,20 @@ These are deliberate MVP boundaries, not defects:
    affected (`bestDiscard()`/`tryDiscardPuzzle()` only ever pass a tile drawn from the hand itself;
    `discardTile()`/`checkDiscardAnswer()` already validated first) — this closes the gap for
    whoever calls it next.
-9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
-   entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
-   claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it
-   yet — no UI, no post-game review. It exists so a future teaching agent (explaining reasoning,
-   setting puzzles, reviewing a finished hand for mistakes) has real decision history to work from
-   instead of having to reconstruct it from the narrative log. `src/game/puzzles.js`/
-   `puzzleLibrary.js` (discard puzzles, checked against `advisor.js` the same way) and the `Puzzle`
-   screen are the first piece of that agent actually built — but standalone: nothing yet connects a
-   puzzle to `state.decisions` or a player's own past mistakes, there is no claim-puzzle or
-   post-game-review counterpart, and the library is a fixed 9 puzzles (3 per difficulty) with no
-   solved/unsolved tracking yet.
+9. **`state.decisions` now has its first consumer: the post-hand review.** `engine.js` records a
+   structured entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every
+   discard and claim decision the human faces, alongside the narrative `state.log`. The end-of-hand
+   ScoreSheet now shows a short review built from it (`src/game/review.js` → `HandReview.jsx`): what
+   you played well, what to try next time, and one thing to focus on. It works fully offline (a
+   plain summary assembled from the decision log); with `VITE_REVIEW_URL` set it POSTs the log to
+   `backend/lambda/reviewHand.ts`, where the `@kaki/agents` package has a cheap Bedrock model
+   *phrase* the same already-graded facts more warmly — the model never computes or judges anything,
+   so the accuracy guarantees hold exactly as for the classify-intent coach fallback. Any failure
+   (no URL, non-2xx, timeout, malformed reply) falls back to the offline summary. `src/game/puzzles.js`/
+   `puzzleLibrary.js` and the `Puzzle` screen remain the other piece built on the same `advisor.js`
+   grading. Still not built: per-player mistake history across hands (needs accounts — Phase 3+),
+   claim puzzles, and any link between a puzzle and your own past decisions. See `agents/README.md`
+   for the agent framework and why it is a plain pipeline rather than LangGraph today.
 10. **Puzzle difficulty is coupled to the evaluator's own discriminating power, not to human
     difficulty — a known architectural limitation, not yet addressed.** `difficultyOf()` in
     `puzzles.js` buckets a puzzle by `tieCount`: how many distinct tiles `bestDiscard()` currently

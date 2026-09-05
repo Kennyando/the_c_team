@@ -2,14 +2,18 @@ import Tile from './Tile.jsx';
 import { tileName } from '../game/tiles.js';
 import { SEAT_NAMES } from '../game/engine.js';
 
-/** End-of-hand result: the tai breakdown, the limit if it applied, and who paid what. */
-export default function ScoreSheet({ result, players, onNewHand }) {
+/**
+ * End-of-hand result: the tai breakdown, the limit if it applied, and who paid what.
+ * `children` (the post-hand review) render just above the "Deal a new hand" button.
+ */
+export default function ScoreSheet({ result, players, onNewHand, children }) {
   if (result.drawn) {
     return (
       <div className="backdrop" role="dialog" aria-modal="true" aria-label="Hand drawn">
         <div className="dialog">
           <h2>Wall finished — draw</h2>
           <p>Nobody won this hand and nobody pays. Shall we deal again?</p>
+          {children}
           <div className="row">
             <button type="button" className="primary" onClick={onNewHand}>Deal a new hand</button>
           </div>
@@ -70,6 +74,8 @@ export default function ScoreSheet({ result, players, onNewHand }) {
             ))}
           </tbody>
         </table>
+
+        {children}
 
         <div className="row">
           <button type="button" className="primary" onClick={onNewHand}>Deal a new hand</button>

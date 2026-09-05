@@ -15,6 +15,7 @@ import ConfirmDialog from './components/ConfirmDialog.jsx';
 import ScoreSheet from './components/ScoreSheet.jsx';
 import Settings from './components/Settings.jsx';
 import Coach from './components/Coach.jsx';
+import HandReview from './components/HandReview.jsx';
 import Home from './components/Home.jsx';
 import Puzzle from './components/Puzzle.jsx';
 import Rules from './components/Rules.jsx';
@@ -221,7 +222,9 @@ export default function App() {
           )}
 
           {state.phase === 'over' && !showSettings && (
-            <ScoreSheet result={state.result} players={state.players} onNewHand={newHand} />
+            <ScoreSheet result={state.result} players={state.players} onNewHand={newHand}>
+              <HandReview decisions={state.decisions} rules={state.rules} voice={display.voice} />
+            </ScoreSheet>
           )}
         </>
       )}
