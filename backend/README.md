@@ -150,9 +150,14 @@ itself, not in an auth check:
 - **API Gateway throttling** on `CoachApi`'s stage — `rateLimit: 2` req/s,
   `burstLimit: 5` by default. Override with `-c coachApiRateLimit=` /
   `-c coachApiBurstLimit=` if a real demo needs more headroom.
-- **Reserved concurrency of 2** on `ClassifyIntentFn` — a hard ceiling on how
-  many invocations can run at once, independent of the throttle above.
-  Override with `-c coachApiConcurrency=`.
+- **Reserved concurrency of 2** on `ClassifyIntentFn` and `ReviewHandFn` — a
+  hard ceiling on how many invocations can run at once, independent of the
+  throttle above. Override with `-c coachApiConcurrency=`. Set
+  `-c coachApiConcurrency=0` to drop it entirely: a restricted account (e.g. a
+  workshop sandbox) can have a Lambda concurrency limit low enough that
+  reserving *any* leaves fewer than the 10 unreserved executions AWS requires
+  account-wide, and `cdk deploy` fails with `decreases account's
+  UnreservedConcurrentExecution below its minimum value of [10]`.
 
 Both are deliberately conservative for a hackathon project on a small
 Bedrock budget, and both bound the *rate* of Bedrock calls — neither is a

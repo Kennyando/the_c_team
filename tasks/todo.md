@@ -2096,3 +2096,20 @@ Next: `cdk bootstrap` + `cdk deploy` in the sandbox, set `VITE_REVIEW_URL`, play
      `test:integration` is for).
 
 backend 25/25 (17 + 8 new), agents 17/17, frontend 102/102. `cdk synth` clean.
+
+## Deploy fix: optional reserved concurrency
+
+First `cdk deploy` into the workshop sandbox failed:
+`Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution
+below its minimum value of [10]`. The sandbox account's Lambda concurrency limit is low enough
+that reserving 2 on each Coach Lambda leaves < 10 unreserved account-wide, which AWS rejects.
+
+- [x] `kaki-mahjong-stack.ts` — `coachApiConcurrency = 0` now omits `reservedConcurrentExecutions`
+     entirely (via a `> 0 ? n : undefined` var) instead of setting it to 0 (which would throttle
+     the function to nothing). Default stays 2 for a normal account.
+- [x] `backend/README.md` — document `-c coachApiConcurrency=0` and the exact error it fixes.
+- [x] `cdk synth` verified: default emits `ReservedConcurrentExecutions: 2` on both Coach
+     Lambdas; `-c coachApiConcurrency=0` emits neither.
+
+Redeploy: `npx cdk deploy -c coachBudgetAlertEmail=… -c coachApiConcurrency=0` (after the failed
+stack's rollback finishes).
