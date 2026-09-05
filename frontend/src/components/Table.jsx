@@ -46,7 +46,7 @@ export default function Table({ state }) {
                 .filter((d) => d.by === seat)
                 .map((d) => (
                   <span key={d.i} className={d.i === lastIndex ? 'discard-tile discard-latest' : 'discard-tile'}>
-                    <Tile tile={d.tile} small={d.i !== lastIndex} justDrawn={d.i === lastIndex} />
+                    <Tile tile={d.tile} small justDrawn={d.i === lastIndex} />
                   </span>
                 ))}
             </div>

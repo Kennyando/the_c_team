@@ -276,33 +276,36 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   flex-wrap: wrap;
   gap: 2px;
   justify-content: center;
+  /* A bounded box, not just a bounded width: a seat with an unusually long run of discards must
+     stop growing rather than reach into another seat's or the table's other regions. */
+  max-height: calc(var(--tile-h) * 0.62 * 4 + 6px);
+  overflow: hidden;
+  /* Rows pack toward this edge, so once the pile is full it's always the oldest discards that get
+     clipped off — the newest, the one an actual decision depends on, never disappears. */
+  align-content: flex-end;
 }
 .discard-pile-far {
   top: 24%;
   left: 50%;
   width: min(220px, 30%);
-  align-content: flex-start;
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-near {
   bottom: 18%;
   left: 50%;
   width: min(220px, 30%);
-  align-content: flex-end;
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-left {
   left: 37%;
   top: 50%;
   width: min(140px, 16%);
-  align-content: center;
   transform: translateY(-50%) translateZ(12px);
 }
 .discard-pile-right {
   right: 37%;
   top: 50%;
   width: min(140px, 16%);
-  align-content: center;
   transform: translateY(-50%) translateZ(12px);
 }
 
