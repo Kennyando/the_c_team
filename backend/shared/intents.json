@@ -1,0 +1,18 @@
+[
+  { "id": "advice.discard", "hint": "asking which tile to discard right now" },
+  { "id": "advice.claim", "hint": "asking whether to call pong, chow or kong on the tile just discarded" },
+  { "id": "advice.progress", "hint": "asking how close their hand is to winning, or what they are waiting on" },
+  { "id": "advice.value", "hint": "asking how many tai, or how much, their hand would score" },
+  { "id": "rules.limit", "hint": "asking about the limit hand or the maximum a hand can score" },
+  { "id": "rules.tai", "hint": "asking about tai scoring or how payouts work" },
+  { "id": "rules.table", "hint": "asking what house rules this table is playing under" },
+  { "id": "rules.wall", "hint": "asking about the wall, tiles left, or a draw game" },
+  { "id": "rules.seat", "hint": "asking about their seat wind or the prevailing wind" },
+  { "id": "rules.dealer", "hint": "asking about the dealer or banker" },
+  { "id": "rules.pong", "hint": "asking what pong means or how it works" },
+  { "id": "rules.chow", "hint": "asking what chow means or how it works" },
+  { "id": "rules.kong", "hint": "asking what kong means or how it works" },
+  { "id": "rules.win", "hint": "asking what counts as a winning hand" },
+  { "id": "rules.flowers", "hint": "asking about flower or season bonus tiles" },
+  { "id": "rules.concealed", "hint": "asking about concealed versus exposed melds" }
+]

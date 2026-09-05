@@ -11,6 +11,7 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as path from "path";
 
@@ -164,6 +165,119 @@ export class KakiMahjongStack extends cdk.Stack {
       memorySize: 512, // the shanten search is the most CPU-heavy handler
     });
 
+    // The help coach's model-assisted fallback: classifies a free-text
+    // question into one of coach.js's existing intent ids when the local
+    // keyword patterns miss. Stateless request/response — no room, no game
+    // state — so it gets a plain HTTP route below rather than a WebSocket
+    // one, and it does NOT share commonEnv/nodeFnDefaults' game-table wiring.
+    // Nova Micro: the cheapest/fastest Bedrock text model, well suited to a
+    // one-word classification task. Override with `-c bedrockModelId=...`
+    // (e.g. an Anthropic Claude Haiku model id) if your account's Bedrock
+    // model access differs.
+    const bedrockModelId = (this.node.tryGetContext("bedrockModelId") as string) || "amazon.nova-micro-v1:0";
+
+    // Cost guardrails: Bedrock is pay-per-call with no free tier, and this
+    // route needs no credentials to hit (see the throttled HttpStage below),
+    // so two independent caps bound the *rate* new Bedrock calls can be
+    // made: reserved concurrency hard-stops how many invocations can ever
+    // run at once (queued/throttled requests cost nothing), and the API
+    // Gateway throttle below caps the request rate before it even reaches
+    // Lambda. Neither is a ceiling on total spend — a caller sitting at the
+    // limit continuously, forever, still accumulates unbounded cost over
+    // time, just slowly. The AWS Budget below is the actual dollar-amount
+    // guardrail. Both throttle numbers are intentionally conservative
+    // defaults for a hackathon demo — override with `-c coachApiConcurrency=`,
+    // `-c coachApiRateLimit=`, `-c coachApiBurstLimit=` if real usage needs
+    // more headroom.
+    const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
+
+    const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(8),
+      logRetention: logs.RetentionDays.ONE_WEEK,
+      bundling: { minify: true, sourceMap: true },
+      entry: path.join(__dirname, "..", "lambda", "classifyIntent.ts"),
+      environment: { BEDROCK_MODEL_ID: bedrockModelId },
+      reservedConcurrentExecutions: coachApiConcurrency,
+    });
+
+    // Bedrock foundation-model ARNs carry no account segment (they are not
+    // account-owned resources), unlike every other ARN in this stack.
+    const bedrockModelArn = `arn:${cdk.Aws.PARTITION}:bedrock:${this.region}::foundation-model/${bedrockModelId}`;
+    classifyIntentFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: [bedrockModelArn],
+      }),
+    );
+
+    const httpApi = new apigwv2.HttpApi(this, "CoachApi", {
+      apiName: `kaki-mahjong-coach-${envName}`,
+      corsPreflight: {
+        allowOrigins: ["*"], // static-site frontend + local dev; no cookies/credentials involved
+        allowMethods: [apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
+        allowHeaders: ["content-type"],
+      },
+      // No default stage here — created explicitly below so it can carry a
+      // throttle. This endpoint takes no credentials (see the module comment
+      // on classifyIntent.ts), so request-rate throttling is the actual
+      // barrier between "publicly reachable" and "unbounded Bedrock spend."
+      createDefaultStage: false,
+    });
+    httpApi.addRoutes({
+      path: "/classify-intent",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2i.HttpLambdaIntegration("ClassifyIntentIntegration", classifyIntentFn),
+    });
+
+    new apigwv2.HttpStage(this, "CoachApiDefaultStage", {
+      httpApi,
+      stageName: "$default", // keeps ClassifyIntentUrl's shape unchanged (no /{stage} segment)
+      autoDeploy: true,
+      throttle: {
+        rateLimit: Number(this.node.tryGetContext("coachApiRateLimit") ?? 2), // steady-state req/s
+        burstLimit: Number(this.node.tryGetContext("coachApiBurstLimit") ?? 5),
+      },
+    });
+
+    // The actual dollar-amount guardrail: the throttle/concurrency above cap the *rate* of
+    // Bedrock spend, not its total, so a sustained anonymous caller can still run up a real bill
+    // over time. Requires a real subscriber address (AWS Budgets has no valid default), so this
+    // is opt-in via context rather than a hard requirement to synth the stack at all.
+    const budgetAlertEmail = this.node.tryGetContext("coachBudgetAlertEmail") as string | undefined;
+    if (budgetAlertEmail) {
+      new budgets.CfnBudget(this, "CoachBedrockBudget", {
+        budget: {
+          budgetName: `kaki-mahjong-coach-bedrock-${envName}`,
+          budgetType: "COST",
+          timeUnit: "MONTHLY",
+          budgetLimit: {
+            amount: Number(this.node.tryGetContext("coachBudgetLimitUsd") ?? 20),
+            unit: "USD",
+          },
+          costFilters: { Service: ["Amazon Bedrock"] },
+        },
+        notificationsWithSubscribers: [
+          {
+            notification: {
+              notificationType: "ACTUAL",
+              comparisonOperator: "GREATER_THAN",
+              threshold: 80,
+              thresholdType: "PERCENTAGE",
+            },
+            subscribers: [{ subscriptionType: "EMAIL", address: budgetAlertEmail }],
+          },
+        ],
+      });
+    } else {
+      cdk.Annotations.of(this).addWarning(
+        "classify-intent is public and takes no credentials, but no coachBudgetAlertEmail context " +
+          "is set, so there is no dollar-amount cost alert on its Bedrock spend — only the rate " +
+          "caps above. Deploy with -c coachBudgetAlertEmail=you@example.com to add one.",
+      );
+    }
+
     const webSocketApi = new apigwv2.WebSocketApi(this, "GameSocketApi", {
       apiName: `kaki-mahjong-ws-${envName}`,
       connectRouteOptions: { integration: new apigwv2i.WebSocketLambdaIntegration("ConnectIntegration", connectFn) },
@@ -228,10 +342,26 @@ export class KakiMahjongStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
+    // classifyIntent.ts now returns a 5xx for a genuine Bedrock infrastructure failure (throttled,
+    // unavailable, access denied) rather than folding it into the same 200 a normal "no match"
+    // gets. The handler catches that error and returns a response rather than throwing, so it
+    // never trips the Lambda's own error metric — the 5xx only shows up on the API route itself.
+    // CoachApi has exactly one route, so its server-error count is this route's server-error count.
+    const classifyIntentServerErrors = httpApi.metricServerError({ period: cdk.Duration.minutes(5) });
+    new cloudwatch.Alarm(this, "ClassifyIntentServerErrorAlarm", {
+      alarmName: `kaki-mahjong-classify-intent-5xx-${envName}`,
+      metric: classifyIntentServerErrors,
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
     // ---------------------------------------------------------------------
     // Outputs
     // ---------------------------------------------------------------------
     new cdk.CfnOutput(this, "WebSocketUrl", { value: stage.url });
+    new cdk.CfnOutput(this, "ClassifyIntentUrl", { value: `${httpApi.apiEndpoint}/classify-intent` });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "AssetsBucketName", { value: assetsBucket.bucketName });

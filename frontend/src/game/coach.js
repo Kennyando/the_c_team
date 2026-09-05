@@ -284,3 +284,77 @@ export function ask(question, state) {
 
 /** Every curated answer, for the brevity test to check. */
 export const STATIC_ANSWERS = STATIC;
+
+// ---------------------------------------------------------------------------
+// Model-assisted fallback (optional, additive)
+// ---------------------------------------------------------------------------
+//
+// `ask()` above is untouched and stays fully local and synchronous — every existing behaviour,
+// and every test against it, is unaffected by anything below this line.
+//
+// `askWithModel()` wraps it: only when the local keyword patterns find no match does it ask a
+// backend model to pick which *existing* intent best fits the wording. The model never writes
+// what the player reads — it only chooses which of the handlers above to call — so none of the
+// accuracy guarantees above (correct by construction, aware of this table's own house rules) are
+// weakened. If no endpoint is configured, or the call fails, times out, or returns anything we
+// don't recognise, the original local fallback is returned unchanged. This is the upgrade path
+// docs/mvp-notes.md's known-limitation #7 names: "keep the local answers and use a model only to
+// interpret the question."
+
+// import.meta.env only exists under Vite; plain Node (the test runner) leaves it undefined, so
+// this is unconfigured — and askWithModel falls straight back to ask() — in every test.
+const CLASSIFY_INTENT_URL = import.meta.env?.VITE_CLASSIFY_INTENT_URL;
+const CLASSIFY_TIMEOUT_MS = 4000;
+
+/**
+ * Calls the backend classifier. Never throws: any failure is reported as `null`.
+ *
+ * The request carries only the question — nothing else. The backend owns the intent catalogue
+ * (backend/shared/intents.json) and builds its own prompt from it; this used to also send the
+ * intent list and a free-text "hint" per intent, which let an untrusted caller inject arbitrary
+ * text straight into the Bedrock prompt. Sending less is both the fix and the smaller request.
+ */
+async function classifyIntentRemote(question, url) {
+  if (!url) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLASSIFY_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.intent === 'string' ? data.intent : null;
+  } catch {
+    return null; // network error, timeout, malformed response — all treated the same
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Route a question exactly like `ask()`, but escalate to the model classifier when — and only
+ * when — the local patterns found nothing. Always resolves; never throws.
+ *
+ * `classifyUrl` defaults to the configured endpoint and only ever needs overriding in tests
+ * (frontend/test/integration/ wires it to a fake handler) — Coach.jsx always calls this with
+ * just the two arguments.
+ */
+export async function askWithModel(question, state, { classifyUrl = CLASSIFY_INTENT_URL } = {}) {
+  const local = ask(question, state);
+  if (local.intent !== 'fallback') return local;
+
+  const intentId = await classifyIntentRemote(question, classifyUrl);
+  if (!intentId) return local;
+
+  // Never trust the remote id blindly: only ever dispatch to an intent we actually know about.
+  const intent = INTENTS.find((i) => i.id === intentId);
+  if (!intent) return local;
+
+  const answer = intent.answer(state);
+  return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
+}

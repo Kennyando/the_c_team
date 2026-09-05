@@ -328,3 +328,355 @@ Two calibrations came out of looking at the result rather than reasoning about i
 2. The two side seats read as standing racks facing you rather than turned side-on. A truly
    side-facing rack would put their names on their sides, which is the kind of skewed text this app
    exists to avoid.
+
+---
+
+# Follow-up: fix backend path mismatch, add model-assisted coach fallback
+
+The AWS backend (`backend/`) had never actually built: `bin/app.ts` imported `../lib/kaki-mahjong-stack`
+and that stack imported its Lambda handlers from `../lambda/*` and `../lambda/mahjong/*`, but none of
+those directories existed — `app.ts`, the handlers, and `kaki-mahjong-stack.ts` itself were sitting in
+the wrong places (some at the repo root, not even under `backend/`). Fix that first, then add the
+smallest useful step toward the agentic coach: a model classifier in front of the coach's existing
+local routing, not a replacement for it.
+
+## Todo
+
+- [x] 1. Move every backend file to the path its own imports already assumed — no import rewrites,
+     since the code was written for the right layout, it just wasn't sitting there
+- [x] 2. Fix `backend/package.json`'s stale `bin` field (`bin/app.js` → `dist/bin/app.js`, matching
+     `tsconfig.json`'s `outDir`)
+- [x] 3. Fix `.gitignore`'s bare `lib/` pattern, which silently ignored `backend/lib/` (the exact
+     directory the fix moves a real source file into); add the missing `cdk.out/` entry
+- [x] 4. `npm install` + `npm run build` (tsc) green in `backend/`
+- [x] 5. `npx cdk synth` green in `backend/`
+- [x] 6. `backend/lambda/classifyIntent.ts` — new stateless HTTP route, calls Amazon Bedrock
+     (Nova Micro by default) to classify a free-text question into one of the coach's own intent ids
+- [x] 7. `backend/lib/kaki-mahjong-stack.ts` — `ClassifyIntentFn`, a plain HTTP API (`CoachApi`, CORS
+     on) rather than a new WebSocket route, and an IAM policy scoped to the one Bedrock model ARN
+- [x] 8. `frontend/src/game/coach.js` — `askWithModel()`, additive only: falls back to the classifier
+     only when the existing local patterns in `ask()` find nothing, and only ever uses the model's
+     answer to pick which existing local handler to call, never to write the reply itself
+- [x] 9. `frontend/src/components/Coach.jsx` — use `askWithModel()`
+- [x] 10. `frontend/.env.template` — optional `VITE_CLASSIFY_INTENT_URL`
+- [x] 11. `frontend/test/coach.test.js` — cover both `askWithModel()` paths
+- [x] 12. Update `backend/README.md` and `docs/mvp-notes.md`
+
+## Review
+
+### What was built
+
+**The backend path mismatch, fixed at the root.** Every file now lives exactly where its own
+existing imports already assumed — `backend/bin/app.ts`, `backend/lib/kaki-mahjong-stack.ts`,
+`backend/lambda/{connect,disconnect,join,gameAction,advise,util}.ts`, and
+`backend/lambda/mahjong/{tiles,shanten,advisor,sanity-test}.ts`. No import needed rewriting: the
+code had been written for this layout, it just was never placed in it, so this was a pure move.
+`npm run build` and `npx cdk synth` are both green, and the mahjong sanity tests still pass with the
+same output as before the move.
+
+Two things a straight move surfaced along the way, both fixed rather than left as follow-ups per
+rule 8: `package.json`'s `bin` field pointed at `bin/app.js`, which was never where `tsc` (`outDir:
+dist`) would put it — corrected to `dist/bin/app.js`. And `.gitignore` carried a bare `lib/` line
+from a Python template, which — unqualified — matches a directory named `lib` at *any* depth,
+including the exact `backend/lib/` this fix populates; left alone, a future edit to
+`kaki-mahjong-stack.ts` would silently vanish from `git status`. Anchored to `/lib/` (root-only,
+matching what it originally meant) rather than removed outright, since nothing else relies on it.
+`cdk.out/` was also missing from `.gitignore` and is now there.
+
+**The intent classifier, additive only.** `docs/mvp-notes.md`'s own known-limitation #7 named the
+upgrade path: "keep the local answers and use a model only to interpret the question." That's
+exactly what `askWithModel()` does. `ask()` itself — every pattern, every computed answer, every
+existing test — is untouched. The new function calls `ask()` first; only when that returns
+`fallback` does it POST the question to `backend/lambda/classifyIntent.ts`, which asks a Bedrock
+model to pick one of the coach's own current intent ids (sent fresh on every request, so the
+classifier never goes stale if an intent is added or renamed) or `fallback`. The model's answer is
+never shown to the player — it only selects which of the existing local handlers runs, so
+`docs/mvp-notes.md`'s accuracy guarantees (rules-correct by construction, aware of this table's own
+house-rule toggles) hold exactly as before.
+
+Chose a plain HTTP API over a new WebSocket route because classifying one string needs no room, no
+connection, no shared game state — the existing `join`/`action`/`advise` routes all assume a
+connected, seated player, which would be pure overhead for "what does this phrase mean."
+
+Every failure mode collapses to the same thing: no `VITE_CLASSIFY_INTENT_URL` configured, a network
+error, a timeout (capped at 4s client-side), Bedrock access not granted, or the model returning
+something that isn't one of the ids it was given — all of these return the plain local `fallback`
+answer, identical to today. The coach cannot be made to work *worse* by this change; it can only
+occasionally work better.
+
+### Why not a bot opponent yet
+
+Out of scope for this pass, on purpose. A model-driven bot needs to reason about a full, partially
+hidden game state (its own hand, discards, opponents' likely hands, house rules) turn after turn,
+and be fast enough not to stall three other players every discard — a much bigger lift than
+classifying one short question. `bots.js`'s heuristic is simple, but it is fast, free, and
+side-effect-free, and it already produces "a game that feels like a real table," which is the bar
+the code comment sets for it. Rule 6 (simplicity, minimal blast radius) argues against replacing a
+working, tested piece wholesale before the smaller, higher-leverage change (this one) has even been
+tried in practice. Worth revisiting once the classifier is deployed and its cost/latency in real use
+is known.
+
+### Verification
+
+- `cd backend && npm install && npm run build` — exit 0, `dist/` mirrors the corrected source tree.
+- `cd backend && npx cdk synth` — exit 0; template includes `ClassifyIntentFn`, `CoachApi`, the
+  scoped `bedrock:InvokeModel` policy, and the new `ClassifyIntentUrl` output.
+- `npx ts-node lambda/mahjong/sanity-test.ts` — all PASS lines unchanged from before the move.
+- `cd frontend && npm test` — 58 pass (the prior 56, plus two new `askWithModel` cases).
+- `cd frontend && npm run build` — exit 0.
+
+### Known limits
+
+1. **Not deployed.** `cdk synth` proves the template is valid; `cdk deploy` (needs real AWS
+   credentials) was not run, so `ClassifyIntentUrl` doesn't exist yet and the coach runs 100% local
+   until someone deploys and sets `VITE_CLASSIFY_INTENT_URL`.
+2. **Bedrock model access is an AWS-account setting**, not something `cdk deploy` grants by itself —
+   Nova Micro (or whichever model id is chosen) needs to be enabled in the Bedrock console for the
+   target account/region first, or every classify call will fail closed to the local fallback.
+3. **No bot opponent work was done**, deliberately — see above.
+
+---
+
+# Follow-up: fix code-review blockers on classify-intent
+
+A review of the previous change flagged two blockers and a testing gap on `classifyIntent.ts`:
+(1) the route calls paid Bedrock, is public, and had no rate limiting at all — unbounded spend
+risk; (2) it accepted the entire intent catalogue, including free-form hint text, from the
+untrusted client and embedded it straight into the Bedrock prompt — a client-controlled prompt is
+unnecessary injection surface; (3) no automated tests existed for the new Lambda at all. Fix all
+three, and keep AWS calls to the minimum the whole time — every test below runs against a mocked
+Bedrock client and makes zero real calls.
+
+## Todo
+
+- [x] 1. `backend/lib/kaki-mahjong-stack.ts` — explicit throttled `HttpStage` (context-configurable
+     `coachApiRateLimit`/`coachApiBurstLimit`, conservative defaults) in place of the implicit
+     default stage, plus `reservedConcurrentExecutions` on the Lambda as an independent hard cap
+- [x] 2. `backend/shared/intents.json` — new single source of truth for the intent catalogue,
+     owned by the backend (bundled into the Lambda at build time), not sent by the client
+- [x] 3. `backend/lambda/classifyIntent.ts` — request contract shrinks to `{ question }` only;
+     the prompt is now built entirely from the backend's own catalogue
+- [x] 4. `backend/tsconfig.json` — `resolveJsonModule` so the catalogue import type-checks
+- [x] 5. `backend/scripts/copy-shared-assets.js` + `build` script — copies `shared/` into `dist/`
+     so the plain `tsc` output stays self-consistent (esbuild, used for the actual deploy bundle,
+     already inlined the JSON automatically and needed no fix)
+- [x] 6. `backend/test/classifyIntent.test.ts` — 17 unit tests against the real handler, Bedrock
+     mocked via `node:test`'s built-in `mock.method`, zero new dependencies
+- [x] 7. `backend/test/integration.coach-classifier.test.mjs` — cross-package smoke test wiring
+     the real frontend `askWithModel()` to the real compiled Lambda in-process
+- [x] 8. `backend/package.json` — `test` and `test:integration` scripts
+- [x] 9. `frontend/src/game/coach.js` — stop sending intents/hints; `askWithModel()` gains an
+     optional `classifyUrl` override (test-only dependency injection, default unchanged)
+- [x] 10. `frontend/test/coach.test.js` — drift-guard test: `coach.js`'s intent ids vs.
+      `backend/shared/intents.json`'s ids must always match exactly
+- [x] 11. Update `backend/README.md` and `docs/mvp-notes.md`
+
+## Review
+
+### What was fixed
+
+**Blocker — unbounded Bedrock spend.** `classify-intent` still takes no credentials (see below for
+why), so the fix is two independent caps that bound worst-case cost regardless of how many callers
+show up: an explicit `HttpStage` with `throttle: { rateLimit: 2, burstLimit: 5 }` (previously the
+`HttpApi` used an implicit default stage with no throttle at all), and `reservedConcurrentExecutions:
+2` on the Lambda itself — a hard ceiling on concurrent invocations that holds even if the throttle
+were ever misconfigured. Both are overridable via CDK context (`coachApiRateLimit`,
+`coachApiBurstLimit`, `coachApiConcurrency`) for whenever a real demo needs more headroom. The
+`ClassifyIntentUrl` output is unchanged — `$default` is still the stage name, just no longer
+implicit — so nothing on the frontend needed to change for this part.
+
+**Blocker — client-controlled prompt.** The route used to accept `{ question, intents }`, where
+`intents` was the full catalogue *including a free-text hint per entry*, sent by the frontend so
+the Lambda's prompt would always match whatever `coach.js` currently supported. That meant an
+untrusted caller could put arbitrary text into the Bedrock prompt via the hint field — the review's
+"unnecessary prompt-injection surface." Fixed by moving the catalogue into `backend/shared/intents.json`,
+which `classifyIntent.ts` imports at build time (esbuild inlines it for the real deployed bundle;
+`resolveJsonModule` makes the same import type-check for plain `tsc`, which needed its own small
+fix — see "Two build-only wrinkles" below). The request now carries nothing but the question. A new
+test (`ignores any client-supplied intent catalogue...`) sends a deliberately hostile `intents`
+field and asserts it never reaches the prompt — this is the regression test for exactly the reported
+issue. The "keep it a shared module, not two copies" half of the review's suggestion is what
+`frontend/test/coach.test.js`'s new drift-guard test enforces: it fails if `coach.js`'s `INTENTS`
+ids and `shared/intents.json`'s ids ever stop matching exactly.
+
+**No automated tests → 17 unit tests + a 2-case integration test.** `backend/test/classifyIntent.test.ts`
+runs via `node`'s built-in test runner (`node:test` + `assert/strict`, the same convention the
+frontend suite already uses — no new test framework, no new dependency) and mocks
+`BedrockRuntimeClient.prototype.send` for every case, so nothing in the suite touches the network
+or costs anything. Covers every case the review listed: malformed JSON, a missing/empty/non-string/
+oversized question, a valid request, an id the model invents, the model returning `fallback`
+verbatim, extra words wrapped around a valid id, mixed case, an empty response, a response with no
+content block, a generic Bedrock exception, and a Bedrock permissions failure — the last two both
+asserting a plain `200 { intent: "fallback" }`, never a 5xx the coach would have to separately
+handle. `backend/test/integration.coach-classifier.test.mjs` answers the review's other point
+directly: it imports the *real* compiled Lambda and the *real* frontend `askWithModel()` into one
+process and wires the coach's `fetch()` straight into the handler, no HTTP server involved, Bedrock
+still mocked. Two cases, matching the review's own two diagrams almost exactly: a mocked
+`rules.kong` classification resolving to the actual local kong answer end to end, and a mocked
+Bedrock failure resolving to the actual local fallback end to end.
+
+### Two build-only wrinkles the JSON import surfaced
+
+Neither affects `cdk synth`/`cdk deploy` (both run the TypeScript source directly via `ts-node`, or
+bundle it via esbuild, which inlines a JSON import automatically) — both would only have bitten
+someone running the plain `tsc` output directly, which nothing in this repo currently does, but
+they were fixed anyway rather than left as latent traps:
+
+1. `tsc`'s `resolveJsonModule` type-checks a JSON import; it does not copy the JSON file into
+   `dist/`. `dist/lambda/classifyIntent.js` would otherwise `require()` a file that doesn't exist
+   at that path. `scripts/copy-shared-assets.js` (plain `fs.cpSync`, not a shell `cp` — works the
+   same on Windows) now runs as part of `npm run build`.
+2. The integration test needs `backend/shared/intents.json` to live inside `backend/`'s `rootDir`
+   (it was briefly drafted at the repo root, which is exactly the class of path mismatch the
+   previous change fixed — caught before it shipped this time).
+
+### Why an auth layer (e.g. Cognito) wasn't added on top of throttling
+
+The review offered throttling *or* Cognito auth as acceptable fixes for the same blocker; this pass
+implements the first. Requiring sign-in for a same-table help coach is a proportionately bigger
+change than the coach itself — this project has no sign-in flow anywhere in the frontend yet (see
+`docs/mvp-notes.md`'s known simplifications), so wiring one in just to gate this one endpoint would
+be a much larger change than the problem calls for right now, and would work against this round's
+explicit priority of keeping AWS usage (and effort) to the minimum needed to close the actual risk,
+which is unbounded spend — something throttling + concurrency caps close directly. The `UserPool`
+this stack already provisions is the natural next step (a JWT authorizer on this route) if the
+project ever needs per-player rate limits rather than per-deployment ones; noted in
+`backend/README.md` as the explicit next step rather than done speculatively now.
+
+### Verification
+
+- `cd backend && npm run build` — exit 0; confirms `resolveJsonModule` resolves the catalogue and
+  `dist/shared/intents.json` is copied.
+- `cd backend && npm test` — 17 pass, all against a mocked Bedrock client.
+- `cd backend && npm run test:integration` — 2 pass (builds first, then runs the smoke test).
+- `cd backend && npx cdk synth` — exit 0; template's `CoachApiDefaultStage` shows
+  `ThrottlingRateLimit: 2` / `ThrottlingBurstLimit: 5`, and `ClassifyIntentFn` shows
+  `ReservedConcurrentExecutions: 2`.
+- `cd frontend && npm test` — 59 pass (the previous 58, plus the new drift-guard test).
+- `cd frontend && npm run build` — exit 0.
+
+### Known limits
+
+1. **Throttling bounds request rate, not per-caller identity.** Two legitimate players asking
+   unusual questions at the same moment share the same 2 req/s budget as an attacker would. Real
+   per-user limits need real accounts (see above).
+2. **Not deployed** — same as the previous round; these are template-level and mocked-unit-level
+   guarantees, not a live-traffic test against real Bedrock.
+
+# Follow-up: address PR #3 review comments
+
+Five comments on the classify-intent PR, before merge:
+
+1. `backend/README.md` overstates `shared/intents.json` as a "single source of truth" both
+   packages read — `coach.js` actually keeps its own separate `INTENTS` array. Correct the docs to
+   describe this accurately as a drift-checked contract (already enforced by a test), rather than
+   pretend the two are the same file.
+2. The API Gateway throttle and reserved concurrency bound the *rate* of Bedrock calls, not total
+   dollar spend — a sustained caller at the throttle ceiling, forever, still accumulates unbounded
+   cost over time. Fix the comments/docs to say so, and add an AWS Budget cost alert (the actual
+   dollar-amount guardrail) since this endpoint is public with no auth.
+3. `Coach.jsx`'s `askNow()` has no re-entrancy guard — rapid clicks fire concurrent `askWithModel()`
+   calls (and concurrent Bedrock requests once escalated).
+4. `classifyIntent.ts` returns HTTP 200 for genuine Bedrock infrastructure failures (throttled,
+   unavailable, access denied) — identical to a successful "fallback" classification. Monitoring
+   can't tell the two apart. Return 5xx for real failures instead; the frontend already treats any
+   non-2xx as "no answer" and falls back locally, so this needs no frontend change.
+5. The model-output parser strips arbitrary characters (`replace(/[^a-z0-9.]/g, "")`) before
+   checking catalogue membership, instead of exact-matching the trimmed/lowercased string. Tighten
+   it to remove the stripping step.
+
+## Todo
+
+- [x] 1. `backend/README.md` — rewrite the "intent catalogue is backend-owned" section to describe
+     the ids as a drift-checked contract (test-enforced), not a single shared file
+- [x] 2. `backend/lib/kaki-mahjong-stack.ts` — correct the cost-guardrail comments (rate cap, not a
+     spend ceiling); add an `aws-budgets` `CfnBudget` scoped to Bedrock cost, gated on a new
+     `coachBudgetAlertEmail` context value (skipped with a synth-time warning if unset, since a
+     Budget needs a real subscriber); add a CloudWatch alarm on `CoachApi`'s server-error count
+     (not the Lambda's own error metric — the handler catches and returns, never throws), so a
+     spike in 5xx (see #4) actually pages someone
+- [x] 3. `backend/README.md` — document the new `coachBudgetAlertEmail`/`coachBudgetLimitUsd`
+     context values alongside the existing throttle ones
+- [x] 4. `frontend/src/components/Coach.jsx` — add a `pending` guard so `askNow()` ignores a new
+     call while one is already in flight; disable the quick-question buttons and the Ask button
+     while pending so the UI shows why
+- [x] 5. `backend/lambda/classifyIntent.ts` — return `502` from the Bedrock-call catch block
+     instead of a `200` fallback; update its comment to explain why (monitoring visibility) and
+     that the frontend needs no change
+- [x] 6. `backend/test/classifyIntent.test.ts` — update the two Bedrock-failure tests to expect
+     `502`, and reword the section comment
+- [x] 7. `backend/lambda/classifyIntent.ts` — replace the character-stripping parse with an exact
+     (trim + lowercase) match against the catalogue ids / `"fallback"`
+- [x] 8. Run `cd backend && npm test`, `cd backend && npm run test:integration`, and
+     `cd frontend && npm test` + `npm run build`; `npx cdk synth` in `backend/` to confirm the new
+     Budget/alarm constructs synthesize cleanly both with and without `coachBudgetAlertEmail` set
+- [x] 9. Push the updated branch and update PR #3
+
+## Review
+
+### What was fixed
+
+**#1 — drift-contract docs.** `backend/README.md`'s "intent catalogue is backend-owned" section
+claimed `shared/intents.json` was "the one file both sides read... a single source of truth," which
+was never true — `coach.js` has always kept its own `INTENTS` array (it needs an answer function and
+routing patterns per intent, neither of which belongs in the backend's JSON). Reworded to say plainly
+that the two are separate, independently-maintained lists whose ids a test
+(`frontend/test/coach.test.js`) asserts stay equal — a drift-checked contract, not a shared file.
+
+**#2 — cost is bounded by rate, not a ceiling.** The throttle/concurrency comments in
+`kaki-mahjong-stack.ts` and `backend/README.md` now say explicitly that they cap the *rate* of
+Bedrock spend, not the total — a caller sitting at the limit forever still runs up unbounded cost
+over time, just slowly. Added a `budgets.CfnBudget` scoped to `Service: ["Amazon Bedrock"]`,
+alerting by email at 80% of a monthly USD limit. It's gated behind a new `coachBudgetAlertEmail`
+context value (AWS Budgets requires a real subscriber address, so there's no safe default), and
+`cdk synth`/`deploy` prints a `cdk.Annotations` warning if that context is missing — verified both
+ways (`npx cdk synth -c envName=dev` warns; adding `-c coachBudgetAlertEmail=test@example.com`
+produces a synthesized `AWS::Budgets::Budget` resource).
+
+**#3 — concurrent askNow().** `Coach.jsx` now guards `askNow()` with a ref (`pendingRef`, checked
+and set synchronously — `useState` alone can't prevent a second click in the same tick from also
+reading `pending === false` before either re-render lands) so a rapid double-tap or repeated
+quick-question click can't fire a second `askWithModel()` while one is in flight. The quick-question
+buttons, the text input, and the Ask button are all `disabled` while `pending` is true, so the UI
+also visibly shows why a second tap does nothing.
+
+**#4 — 5xx for real Bedrock failures.** `classifyIntent.ts`'s catch block (Bedrock throttled,
+unavailable, access denied) now returns `502` instead of folding the failure into the same `200`
+a normal "no local match, and the model said fallback" response gets. The frontend needed **no**
+change: `classifyIntentRemote()` in `coach.js` already treats any non-2xx response as "no answer"
+and returns `null`, so `askWithModel()` falls back to the local answer exactly as before — confirmed
+by the (unmodified) integration test, which still passes end-to-end through the real compiled
+Lambda. Added `ClassifyIntentServerErrorAlarm`, on `CoachApi`'s `metricServerError()` (the Lambda's
+own `metricErrors()` won't fire here — the handler catches the failure and returns a response, it
+never throws, so from Lambda's own point of view every invocation "succeeds").
+
+**#5 — exact-match parsing.** Removed the `replace(/[^a-z0-9.]/g, "")` stripping step; the model's
+output is now only trimmed and lowercased, then compared for exact equality against the catalogue
+ids or the literal `"fallback"` — no reshaping that could let noisy output coincidentally collapse
+into a valid id. All existing parser tests (extra words, mixed case, empty response, unrecognised
+id) still pass unchanged, since none of them relied on the stripping behavior to reach their
+expected result.
+
+### Test plan
+
+- `cd backend && npm test` — 17/17 pass (two tests updated to expect 502 instead of 200; the parser
+  and drift behavior needed no test changes).
+- `cd backend && npm run test:integration` — 2/2 pass, including the Bedrock-unavailable case,
+  confirming the new 502 is still transparent to the frontend's local fallback end-to-end.
+- `cd backend && npm run build` — exit 0.
+- `cd backend && npx cdk synth -c envName=dev` — synthesizes cleanly; prints the expected budget
+  warning.
+- `cd backend && npx cdk synth -c envName=dev -c coachBudgetAlertEmail=test@example.com` —
+  synthesizes cleanly; `AWS::Budgets::Budget` resource present with the expected properties.
+- `cd frontend && npm test` — 59/59 pass, including the drift-guard test (untouched by the
+  `Coach.jsx` change) and both `askWithModel` tests.
+- `cd frontend && npm run build` — exit 0.
+
+### Known limits
+
+1. **Not manually tested against a live Bedrock endpoint or a live UI.** Every check above is a
+   mocked unit/integration test or a template-synthesis check — no `cdk deploy` and no browser
+   session exercising `Coach.jsx`'s new disabled-button behavior against a running dev server.
+2. **The Budget alert is opt-in.** A deployment that never sets `coachBudgetAlertEmail` still has
+   no dollar-amount cost alert — only the pre-existing rate/concurrency caps. The synth-time
+   warning is the only nudge toward setting it.
