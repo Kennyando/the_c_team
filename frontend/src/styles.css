@@ -104,6 +104,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
    what makes tilting it safe — your hand lives outside, flat and full size. */
 
 .table {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -132,7 +133,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .surface {
   position: relative;
   height: 100%;
-  width: min(92%, 1040px);
+  width: min(96%, 1300px);
   /* Scaled up a little: foreshortening shrinks the drawn table, and pulling it back out brings the
      near edge close enough to feel like it meets your side of the table. */
   transform: rotateX(var(--tilt)) scale(var(--table-scale));
@@ -142,7 +143,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   /* The size slider exists so you can read YOUR OWN hand. Applying it at full strength to the
      table as well makes the opponents' racks and the discard pool outgrow the table itself, so
      everything on the felt follows a damped version of it — it still grows, just gently. */
-  --table-tiles: calc(1.04 + (var(--tile-scale) - 1) * 0.3);
+  --table-tiles: calc(1.3 + (var(--tile-scale) - 1) * 0.3);
   --tile-w: calc(52px * var(--table-tiles));
   --tile-h: calc(74px * var(--table-tiles));
 
@@ -172,8 +173,13 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 /* ---------- the wall ---------- */
 
 .wall { display: contents; }
+.wall-edge { position: absolute; display: flex; align-items: center; justify-content: center; }
+.wall-edge-far { top: 4%; left: 50%; transform: translateX(-50%); }
+.wall-edge-near { bottom: 4%; left: 50%; transform: translateX(-50%); }
+.wall-edge-left { left: 4%; top: 50%; transform: translateY(-50%) rotate(90deg); }
+.wall-edge-right { right: 4%; top: 50%; transform: translateY(-50%) rotate(90deg); }
 .stack {
-  position: absolute;
+  flex: none;
   width: calc(var(--tile-w) * 0.30);
   height: calc(var(--tile-h) * 0.26);
   border-radius: 3px;
@@ -183,10 +189,6 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   box-shadow: 0 -3px 0 #e3d8bd, 0 -3px 0 1px #8d7c58;
 }
 [data-theme='contrast'] .stack { background: #fff; border-color: #000; box-shadow: 0 -3px 0 #fff, 0 -3px 0 1px #000; }
-.stack-far { top: 4%; left: var(--at); transform: translateX(-50%); }
-.stack-near { bottom: 4%; left: var(--at); transform: translateX(-50%); }
-.stack-left { left: 4%; top: var(--at); transform: translateY(-50%) rotate(90deg); }
-.stack-right { right: 4%; top: var(--at); transform: translateY(-50%) rotate(90deg); }
 
 /* ---------- opponents ---------- */
 
@@ -201,8 +203,10 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   transform-origin: 50% 100%;
 }
 .seat-far { bottom: 74%; left: 26%; width: 48%; }
-.seat-left { bottom: 44%; left: 3%; width: 30%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
-.seat-right { bottom: 44%; right: 3%; width: 30%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(-16deg); }
+/* Pulled in from the wall's own edge inset (4%) so the standing rack never crosses the wall lying
+   flat beside it — on a real table your hand sits inside your wall, not on top of it. */
+.seat-left { bottom: 44%; left: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
+.seat-right { bottom: 44%; right: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(-16deg); }
 
 /* The name plate stays square to the reader — skewed text is what this app exists to avoid. */
 .seat-plate {
@@ -247,35 +251,67 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 [data-theme='contrast'] .seat-meld { background: #000; border: 2px solid #fff; }
 
-/* ---------- discards, pooled in the middle ---------- */
+/* ---------- discards, one tidy grid per seat ----------
 
-.pool {
+   Each player's discards pile up as their own compact grid, just inside their own wall — the way
+   an actual mahjong game lays them out — rather than everyone's tiles landing in one shared heap. */
+
+.discard-piles { display: contents; }
+.discards-empty {
   position: absolute;
-  left: 30%;
-  right: 30%;
-  top: 40%;
-  bottom: 7%;
+  inset: 0;
   display: flex;
-  flex-wrap: wrap;
-  /* Fill from the bottom. In a long hand the pool overflows, and clipping the oldest discards is
-     far better than clipping the newest one — that is the tile a decision depends on. */
-  align-content: flex-end;
+  align-items: center;
   justify-content: center;
-  gap: 4px;
-  overflow: hidden;
-  transform: translateZ(12px);
-}
-.pool-empty {
-  margin: auto;
   color: var(--text-on-felt);
   opacity: 0.6;
   font-size: calc(14px * var(--tile-scale));
+  pointer-events: none;
 }
-[data-theme='contrast'] .pool-empty { opacity: 1; }
+[data-theme='contrast'] .discards-empty { opacity: 1; }
 
-/* The tile just thrown stands up at full size — it is the one thing on the table a decision
-   actually depends on, so it must not be foreshortened with everything else. */
-.pool-latest {
+.discard-pile {
+  position: absolute;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+  /* A bounded box, not just a bounded width: a seat with an unusually long run of discards must
+     stop growing rather than reach into another seat's or the table's other regions. */
+  max-height: calc(var(--tile-h) * 0.62 * 4 + 6px);
+  overflow: hidden;
+  /* Rows pack toward this edge, so once the pile is full it's always the oldest discards that get
+     clipped off — the newest, the one an actual decision depends on, never disappears. */
+  align-content: flex-end;
+}
+.discard-pile-far {
+  top: 24%;
+  left: 50%;
+  width: min(220px, 30%);
+  transform: translateX(-50%) translateZ(12px);
+}
+.discard-pile-near {
+  bottom: 18%;
+  left: 50%;
+  width: min(220px, 30%);
+  transform: translateX(-50%) translateZ(12px);
+}
+.discard-pile-left {
+  left: 37%;
+  top: 50%;
+  width: min(140px, 16%);
+  transform: translateY(-50%) translateZ(12px);
+}
+.discard-pile-right {
+  right: 37%;
+  top: 50%;
+  width: min(140px, 16%);
+  transform: translateY(-50%) translateZ(12px);
+}
+
+/* The tile just thrown stands up at full size, square to you — it is the one thing on the table a
+   decision actually depends on, so it must not be foreshortened with the rest of its pile. */
+.discard-latest {
   transform: translateZ(18px) rotateX(calc(var(--tilt) * -1)) translateY(-8%);
   transform-origin: 50% 100%;
   z-index: 2;
@@ -330,7 +366,13 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 /* Your side of the table. Outside the perspective entirely: full size, square to you, tap targets
    untouched. The wooden ledge ties it to the table rim without altering a single tile. */
 .hand-area {
-  background: var(--panel);
+  background: var(--felt);
+  color: var(--text-on-felt);
+  --muted: color-mix(in srgb, var(--text-on-felt) 82%, transparent);
+  /* Your own tiles are the one thing you must read at a glance, so they get their own bump on
+     top of the size slider rather than sharing the root scale with buttons and dialogs. */
+  --tile-w: calc(52px * var(--tile-scale) * 1.35);
+  --tile-h: calc(74px * var(--tile-scale) * 1.35);
   border-top: 10px solid var(--rim, #6b4a2a);
   border-radius: 0;
   padding: 12px 16px 14px;
@@ -346,7 +388,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 [data-theme='contrast'] .hand-area { border-top-color: #fff; }
 .hand-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
 .hand-header .you { font-weight: 800; font-size: calc(19px * var(--tile-scale)); }
-.hand-tiles { display: flex; flex-wrap: wrap; gap: 8px; }
+.hand-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .meld-group { display: flex; gap: 3px; padding: 5px; border: 2px dashed var(--panel-edge); border-radius: 10px; }
 
 .prompt {
@@ -468,15 +510,25 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 /* ---------- narration log ---------- */
 
 .log {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: min(90%, 640px);
   padding: 10px 20px;
+  border-radius: 999px;
   background: var(--ink);
   color: #eef4f0;
   font-size: calc(15px * var(--tile-scale));
   min-height: var(--tap);
   display: flex;
   align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
-[data-theme='contrast'] .log { background: #000; color: #fff; border-top: 3px solid #fff; }
+[data-theme='contrast'] .log { background: #000; color: #fff; border: 3px solid #fff; }
 
 .visually-hidden {
   position: absolute;
@@ -624,8 +676,9 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   .seat-far { bottom: 68%; }
   .seat-left, .seat-right { bottom: 42%; }
   .rack .tile-back { width: calc(var(--tile-w) * 0.24); height: calc(var(--tile-h) * 0.28); }
-  /* A short table leaves the pool very little room, so give it more of the width. */
-  .pool { left: 18%; right: 18%; top: 52%; bottom: 4%; }
+  /* A short table leaves each pile very little room, so let them run wider before wrapping. */
+  .discard-pile-far, .discard-pile-near { width: min(260px, 40%); }
+  .discard-pile-left, .discard-pile-right { width: min(140px, 20%); }
 }
 @media (max-width: 640px) {
   .table { --tilt: 24deg; --table-scale: 1; }
