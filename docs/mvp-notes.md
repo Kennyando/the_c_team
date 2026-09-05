@@ -268,6 +268,38 @@ These are deliberate MVP boundaries, not defects:
    puzzle to `state.decisions` or a player's own past mistakes, there is no claim-puzzle or
    post-game-review counterpart, and the library is a fixed 9 puzzles (3 per difficulty) with no
    solved/unsolved tracking yet.
+10. **Puzzle difficulty is coupled to the evaluator's own discriminating power, not to human
+    difficulty — a known architectural limitation, not yet addressed.** `difficultyOf()` in
+    `puzzles.js` buckets a puzzle by `tieCount`: how many distinct tiles `bestDiscard()` currently
+    can't tell apart. That's a measure of the *evaluator's* blind spots, not of how hard a position
+    actually is for a person to read — the two only coincide if the evaluator is already a perfect
+    proxy for human judgment, which it isn't and won't be after the next improvement either. The
+    evidence is direct, not theoretical: `tieCount` thresholds have now been recalibrated three
+    times in this project's history (once for the original metric, once when value-awareness
+    landed, once when ukeire landed), each recalibration was needed purely because the evaluator got
+    better at distinguishing candidates, and the third one alone flipped 8 of the 9 curated puzzles'
+    difficulty labels and left 53% of random hands with a *uniquely* best tile — none of which
+    implies the underlying positions got easier or harder for an actual player to reason about.
+
+    Two directions were considered for a more stable difficulty signal, deliberately not built yet:
+    - **Score margin / candidate ambiguity** — the gap between the best candidate's `blended` score
+      and the runner-up, as a continuous value rather than an exact-tie count. Buildable today with
+      the existing evaluator and no new infrastructure, and it degrades gracefully instead of
+      flipping categorically at a tie/not-tie boundary. Not a full fix, though: the gap is measured
+      in "blended score units," which are only as stable as `VALUE_PER_SHANTEN`/`UKEIRE_WEIGHT`
+      (both already flagged elsewhere in this document as starting guesses, not derived numbers) —
+      a future weight retune would still shift margin-based thresholds, just less violently than a
+      tie-count flip does.
+    - **Real player success data** — pass/fail rates on each puzzle, the actual ground truth for
+      human-perceived difficulty, fully decoupled from the evaluator by construction. This needs
+      infrastructure the app doesn't have: accounts, backend persistence, and telemetry are all
+      Phase 3+ (see "State is in memory only," above) — not a client-side change.
+
+    The deliberate decision for now: keep *correctness* (`bestTile`, `checkDiscardAnswer()`) tied to
+    the live evaluator, since a puzzle's answer should always match what the current coach would
+    actually recommend — but treat the *difficulty label* as a separate, softer concern that this
+    project is intentionally not solving yet, rather than continuing to patch tie-count thresholds
+    every time the evaluator improves.
 
 ## Deferred to later phases
 

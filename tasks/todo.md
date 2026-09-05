@@ -1821,3 +1821,48 @@ a valid input, only what happens on an invalid one and what the code says about 
 - No manual browser re-check needed this round — nothing here is reachable through the UI in a way
   that differs from what was already verified (the invalid-tile throw has no caller that could ever
   trigger it from the app; the ukeire arithmetic was already correct, not changed).
+
+# Architectural note: puzzle difficulty is coupled to the evaluator, not to human difficulty
+
+Raised after the ukeire round, once the pattern became undeniable rather than a one-off: this is the
+*third* time `puzzles.js`'s `tieCount`-based difficulty thresholds have needed recalibrating, and
+each time was purely because `bestDiscard()` itself got better at distinguishing candidates (first
+value-awareness, now real ukeire) — not because the underlying positions changed. The ukeire round's
+own numbers make the case concretely: 53% of random hands went from "several plausible discards" to
+"a uniquely correct one" purely from a better evaluator, and 8 of the 9 curated puzzles' difficulty
+labels flipped as a side effect. `tieCount` measures the evaluator's current blind spots, not a
+stable property of the position — a form of the "leaky abstraction" problem: difficulty should be a
+property of the *puzzle*, but the current metric is really a property of whatever `bestDiscard()`
+happens to be able to tell apart *this week*.
+
+This is a documentation-only entry — **no code changed**, and none was asked for. Captured now so
+the next evaluator improvement (a smarter `estimateValue()`, a deeper ukeire lookahead, anything
+else that sharpens `bestDiscard()`) doesn't quietly repeat the same "recalibrate again" cycle without
+anyone having named why it keeps happening.
+
+## What was written up
+
+- [x] `docs/mvp-notes.md` — new "Known simplifications" item 10, laying out: the diagnosis (tieCount
+     conflates evaluator power with human difficulty), the concrete evidence (three recalibrations,
+     the 53%/8-of-9 numbers from this session), two candidate directions for a more stable signal —
+     **score margin / candidate ambiguity** (buildable today, no new infrastructure, but still scaled
+     by the same tunable weights so not a full decoupling) and **real player success data** (the
+     actual ground truth, but needs accounts/persistence/telemetry this app doesn't have — Phase 3+)
+     — and the deliberate current stance: keep puzzle *correctness* tied to the live evaluator
+     (a puzzle's answer must always match what the coach would actually recommend), but treat the
+     *difficulty label* as a separate, intentionally-unsolved concern rather than patching
+     thresholds again next time.
+- [x] `tasks/todo.md` — this entry, for the same reason every other design decision in this file
+     gets one: so the reasoning behind a choice survives past the conversation that produced it.
+
+## Review
+
+Purely a documentation change — `git diff` touches only `docs/mvp-notes.md` and `tasks/todo.md`, no
+source or test files. No verification steps apply (nothing runnable changed); `npm test`/
+`npm run build` were not re-run since nothing in `frontend/` was touched.
+
+Not decided yet, and deliberately left open: whether to actually build the score-margin metric, and
+on what timeline. That's a separate, larger piece of work (defining what "margin" means as a
+difficulty score, calibrating it via the same simulation methodology already established in this
+project, re-verifying the puzzle library and test fixtures against it) — this entry exists so that
+work has a clear rationale to start from whenever it's picked up, not so it happens automatically.
