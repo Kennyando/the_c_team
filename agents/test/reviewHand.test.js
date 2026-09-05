@@ -95,6 +95,46 @@ test('valid model reply is used verbatim and marked modelAssisted', async () => 
   assert.equal(result.oneThingToTry, 'Let lone winds go before the hand gets tight.');
 });
 
+test('a model reply wrapped in a ```json fence is still parsed and used', async () => {
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () =>
+    converse('```json\n' + validReview + '\n```'),
+  );
+
+  const result = await runReview({ decisions: [optimalDiscard, badDiscard, missedPong], rules: RULES });
+
+  assert.equal(result.modelAssisted, true);
+  assert.equal(result.headline, 'Solid hand — you kept your options open.');
+});
+
+test('a schema-valid reply that claims more improvements than there were mistakes falls back', async () => {
+  const overreach = JSON.stringify({
+    headline: 'Lots to say about that hand.',
+    goodMoves: [],
+    improvements: ['One.', 'Two.', 'Three.'], // fixture below has exactly one sub-optimal move
+    oneThingToTry: 'Slow down.',
+  });
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () => converse(overreach));
+
+  const result = await runReview({ decisions: [optimalDiscard, badDiscard], rules: RULES });
+
+  assert.equal(result.modelAssisted, false);
+  assert.match(result.improvements[0], /stronger discard/i);
+});
+
+test('a schema-valid reply that credits more good moves than there were optimal moves falls back', async () => {
+  const overreach = JSON.stringify({
+    headline: 'You played beautifully.',
+    goodMoves: ['Great.', 'Also great.'], // fixture below has exactly one optimal move
+    improvements: [],
+    oneThingToTry: 'Keep going.',
+  });
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () => converse(overreach));
+
+  const result = await runReview({ decisions: [optimalDiscard, badDiscard], rules: RULES });
+
+  assert.equal(result.modelAssisted, false);
+});
+
 test('malformed model reply falls back to deterministic', async () => {
   mock.method(BedrockRuntimeClient.prototype, 'send', async () => converse('sorry, I could not do that'));
 

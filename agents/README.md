@@ -14,16 +14,22 @@ deterministic context  ─►  one model call  ─►  parse + strict validate  
 
 1. **Context builders** (`src/context/`) run first. They are pure functions over game data — no
    model, no judgement of their own. For Review they restate `state.decisions`, which the engine
-   already graded against `advisor.js` when each move was made.
+   already graded against `advisor.js` when each move was made. The restatement itself lives in
+   `frontend/src/game/reviewCore.js` and is re-exported here through `@kaki/game`, so the
+   frontend's offline review and this package's fallback build facts from one implementation
+   (pinned by `test/contract.test.js`).
 2. **One model call** (`src/model.js` — the *only* place a model is invoked) turns those facts
    into warm, plain sentences. It never computes anything; the facts are the analysis. This is
    the same guarantee `backend/lambda/classifyIntent.ts` gives: the model never writes the
    authoritative content.
-3. **Validate** against `src/schema.js`. Anything that doesn't fit — wrong type, too long, model
-   errored, no model configured — is discarded.
-4. **Deterministic fallback** (`src/review/deterministic.js`) assembles the same facts with no
-   model. It is both the offline default and the guaranteed floor, so a caller always gets a
-   well-formed result.
+3. **Validate** against `src/schema.js` (shape), then against the facts (grounding): a reply that
+   lists more "improve" notes than there were sub-optimal moves, or more "well played" notes than
+   there were optimal ones, isn't grounded in the decision log and is discarded. Anything that
+   doesn't fit — wrong type, too long, ungrounded, model errored, no model configured — falls to:
+4. **Deterministic fallback** (`src/review/deterministic.js` → `assembleReview` from `@kaki/game`)
+   assembles the same facts with no model. It is both the offline default and the guaranteed
+   floor, so a caller always gets a well-formed result, and it is byte-identical to the frontend's
+   offline path.
 
 ## Why not LangGraph.js (yet)
 
@@ -73,6 +79,22 @@ review locally and makes no network call.
 npm install
 npm test        # node:test, Bedrock mocked — no AWS calls, no cost
 ```
+
+`test/contract.test.js` is the important one: it feeds the same decision logs through the
+frontend's `localReview()` and this package's `deterministicReview()` and asserts identical
+output, so the two model-free paths can never drift.
+
+## Known limits / follow-ups
+
+- **Grounding is count-based, not per-item.** The guard checks the model didn't produce *more*
+  notes than the facts support; it doesn't yet verify each individual note maps to a specific
+  decision whose engine-grade backs that classification. A stronger version would have review
+  items carry a `decisionId` and validate each one against the graded decision it points at.
+- **`state.decisions` records no `advisorVersion`.** The review trusts the grade captured when
+  each move was made — correct, but `advisor.js` keeps evolving (value-aware scoring, ukeire,
+  future tuning). Once decisions persist across sessions (Phase 3+), decision records should
+  stamp which evaluator produced them. That's an `engine.js` change, out of scope for this
+  consumer.
 
 ## Adding the next agent
 

@@ -261,12 +261,15 @@ These are deliberate MVP boundaries, not defects:
    structured entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every
    discard and claim decision the human faces, alongside the narrative `state.log`. The end-of-hand
    ScoreSheet now shows a short review built from it (`src/game/review.js` → `HandReview.jsx`): what
-   you played well, what to try next time, and one thing to focus on. It works fully offline (a
-   plain summary assembled from the decision log); with `VITE_REVIEW_URL` set it POSTs the log to
+   you played well, what to try next time, and one thing to focus on. The model-free assembly lives
+   in `src/game/reviewCore.js` and is the *same* code the backend fallback runs (it re-imports it via
+   `@kaki/game`), pinned by `agents/test/contract.test.js` — so the review can't differ by
+   deployment. It works fully offline; with `VITE_REVIEW_URL` set it POSTs the log to
    `backend/lambda/reviewHand.ts`, where the `@kaki/agents` package has a cheap Bedrock model
    *phrase* the same already-graded facts more warmly — the model never computes or judges anything,
-   so the accuracy guarantees hold exactly as for the classify-intent coach fallback. Any failure
-   (no URL, non-2xx, timeout, malformed reply) falls back to the offline summary. `src/game/puzzles.js`/
+   and a grounding check drops any reply that claims more than the facts support, so the accuracy
+   guarantees hold exactly as for the classify-intent coach fallback. Any failure (no URL, non-2xx,
+   timeout, malformed or ungrounded reply) falls back to the offline summary. `src/game/puzzles.js`/
    `puzzleLibrary.js` and the `Puzzle` screen remain the other piece built on the same `advisor.js`
    grading. Still not built: per-player mistake history across hands (needs accounts — Phase 3+),
    claim puzzles, and any link between a puzzle and your own past decisions. See `agents/README.md`

@@ -11,3 +11,4 @@ export * from './melds.js';
 export * from './scoring.js';
 export * from './advisor.js';
 export * from './puzzles.js';
+export * from './reviewCore.js';

@@ -1979,3 +1979,26 @@ strategy bot opponent, DynamoDB player memory (needs accounts), and de-duplicati
 - `localReview` (frontend) and `deterministicReview` (agents) are kept shape-compatible by hand, not
   by a shared module (the agents path can't be imported into the browser bundle — it pulls the AWS
   SDK). A drift-guard test like `coach.js` <-> `intents.json` could pin them if this matters later.
+
+## PR #11 review — changes made
+
+Collaborator review raised 5 points. Addressed:
+
+- [x] **Drift guard (request-changes).** `localReview()` and `deterministicReview()` no longer
+     have two implementations. The model-free assembly moved to `frontend/src/game/reviewCore.js`
+     (`decisionFacts` + `assembleReview`); `frontend/src/game/review.js` is now just the network
+     layer, and `agents/src/review/deterministic.js` + `agents/src/context/decisionContext.js`
+     re-export from `@kaki/game`. `agents/test/contract.test.js` feeds 6 decision-log fixtures
+     through both entry points and asserts `deepEqual`.
+- [x] **Grounding, partial (architecture suggestion).** `runReview()` now rejects a schema-valid
+     model reply that lists more `improvements` than there were sub-optimal moves, or more
+     `goodMoves` than optimal ones — it isn't grounded in the decision log. Two tests added. The
+     full version (per-item `decisionId` referencing a graded decision) is noted as a follow-up in
+     `agents/README.md`.
+- [ ] **`advisorVersion` on decision records (future-proofing).** Agreed, but it's an `engine.js`
+     schema change and only matters once decisions persist (Phase 3+) — out of scope for this
+     consumer PR. Noted as a follow-up in `agents/README.md`.
+- [x] **Defer LangGraph (+1).** No change — reviewer agreed with the approach.
+- [x] **Test coverage.** Added: the contract/golden test above, two grounding-guard tests, a
+     fenced-```json``` reply test, and malformed-array-entries coverage in the contract fixtures.
+     Zero-decisions / all-optimal / transport-failure cases were already covered.
