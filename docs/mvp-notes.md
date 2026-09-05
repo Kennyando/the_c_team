@@ -245,7 +245,18 @@ These are deliberate MVP boundaries, not defects:
    differentiates almost every non-symmetric candidate, exact ties collapsed hard — the puzzle
    difficulty thresholds (`tieCount`-based, see `puzzles.js`) needed a third recalibration, and 8 of
    the 9 curated puzzles needed fresh hands under the new tie distribution (53% of random hands now
-   have a *uniquely* best tile).
+   have a *uniquely* best tile). It's worth being precise about what this measures: ukeire here is
+   *immediate*, one-draw acceptance, not a lookahead over several draws — a real improvement over
+   shanten alone, but still an approximation of "fastest, highest-value path to a win," not a
+   guarantee of one.
+
+   `evaluateDiscard()` (now the shared grading primitive for the coach, decision log, *and* puzzle
+   checking) had the same invalid-tile gap `checkDiscardAnswer()` was fixed for earlier: passing a
+   tile that isn't actually in the hand relied on every caller already knowing not to do that,
+   rather than the function refusing outright. It now throws. No production caller was ever
+   affected (`bestDiscard()`/`tryDiscardPuzzle()` only ever pass a tile drawn from the hand itself;
+   `discardTile()`/`checkDiscardAnswer()` already validated first) — this closes the gap for
+   whoever calls it next.
 9. **`state.decisions` is groundwork, not a feature yet.** `engine.js` now records a structured
    entry (chosen vs. `advisor.js`-recommended move, and whether they matched) for every discard and
    claim decision the human faces, alongside the existing narrative `state.log`. Nothing reads it

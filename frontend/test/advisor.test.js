@@ -79,6 +79,49 @@ test('evaluateDiscard grades an arbitrary tile the same way bestDiscard ranks it
   assert.equal(chosen.after, rec.shantenAfter);
 });
 
+test('evaluateDiscard refuses to grade a tile that is not actually in the hand', () => {
+  // Regression: Array.indexOf returns -1 for an unknown tile, and splice(-1, 1) would otherwise
+  // silently remove the *last* tile in the hand and grade discarding that instead — the same
+  // failure mode already found and fixed once in puzzles.js's checkDiscardAnswer.
+  const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
+  const player = { seat: 0, hand, melds: [], bonus: [] };
+  assert.throws(() => evaluateDiscard(player, 'dg', ctxFor(hand)), /"dg" is not in hand/);
+});
+
+// --- ukeire: real, remaining-copy-weighted tile acceptance -------------------------------------
+
+test('ukeire correctly subtracts the player\'s own held copy, not just copies visible elsewhere', () => {
+  // 4 complete sets plus two isolated singles ('dr', 'dw') — discarding 'dw' leaves a tanki wait on
+  // pairing the lone 'dr'. With 4 sets already fixed, drawing anything except a second 'dr' cannot
+  // reduce shanten further, so ukeire here is entirely and only 'dr's own remaining count: 4 total
+  // copies, minus the 1 already sitting in this hand, however contextFor computed visibility.
+  const hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'dr', 'dw'];
+  const player = { seat: 0, hand, melds: [], bonus: [] };
+  const result = evaluateDiscard(player, 'dw', ctxFor(hand));
+  assert.equal(result.after, 0, 'tenpai on pairing the lone dr');
+  assert.equal(result.ukeire, 3, '4 total dr copies minus the 1 already in this hand');
+});
+
+test('ukeire combines a self-held copy with copies exposed elsewhere into one real remaining count', () => {
+  const state = newGame(rules, 0);
+  // Pin every seat so visibility is fully controlled: only this player's own lone 'dr' and
+  // player 1's exposed pong of 'dr' account for any copies — no randomly-dealt overlap.
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'dr', 'dw'];
+  state.players[1].hand = ['b4', 'b4', 'b5', 'b5', 'b6', 'b6', 'c4', 'c4', 'c5', 'c5', 'c6', 'c6', 'd7'];
+  state.players[2].hand = ['b7', 'b7', 'b8', 'b8', 'b9', 'b9', 'c7', 'c7', 'c8', 'c8', 'c9', 'c9', 'd8'];
+  state.players[3].hand = ['ws', 'ws', 'ww', 'ww', 'wn', 'wn', 'd9', 'd9'];
+  for (const p of state.players) p.bonus = [];
+  state.players[1].melds = [{ type: 'pong', tiles: ['dr', 'dr', 'dr'], concealed: false }];
+
+  const ctx = contextFor(state, state.players[0]);
+  assert.equal(ctx.visibleTiles.dr, 4, 'this player\'s 1 plus the exposed pong\'s 3');
+  // All 4 real copies of 'dr' are now accounted for (1 in hand, 3 exposed) — a genuinely dead wait,
+  // the real-world case this subtraction exists to catch: without it, this would wrongly report 3
+  // or 4 remaining outs for a tile that cannot actually be drawn any more.
+  const result = evaluateDiscard(state.players[0], 'dw', ctx);
+  assert.equal(result.ukeire, 0, 'every copy of the only improving tile is already known');
+});
+
 // --- contextFor(): building visibility from a live state, never from state.wall ----------------
 
 test('contextFor treats your own hand, every exposed meld/bonus, and every discard as visible', () => {

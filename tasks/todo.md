@@ -1759,3 +1759,65 @@ advice still doesn't weigh danger. The one new limit worth naming: `bestDiscard(
 meaningfully slower (~51ms), which is fine for a single synchronous coach call but would need a
 second look if it were ever called in a hot loop (e.g. bot decision-making at scale, or a future
 batch-analysis feature) rather than once per human click.
+
+# PR #9 second review round: a real bug, a verified-not-a-bug, and a docs precision ask
+
+Three more comments landed after the ukeire commit: one "Request changes" (a real bug), one asking
+me to verify a specific correctness concern about the new ukeire code rather than asserting it was
+broken, and one suggesting more precise objective-function documentation. Verified each against the
+actual code with a script before deciding, rather than assuming either the bug report or my own
+prior implementation was correct.
+
+## Todo
+
+- [x] 1. **Fix `evaluateDiscard()`'s invalid-tile failure mode (confirmed real via script).** Same
+     class of bug already found and fixed once in `puzzles.js`'s `checkDiscardAnswer`:
+     `rest.indexOf(tile)` returns `-1` for a tile not in the hand, and `splice(-1, 1)` silently
+     removes the *last* tile instead and returns a fabricated evaluation for a completely different
+     discard. Confirmed via script: `evaluateDiscard(player, 'dg', ctx)` on a hand without `'dg'`
+     returned a plausible-looking result instead of failing. Now throws
+     `evaluateDiscard: "<tile>" is not in hand`. Checked every call site first — `bestDiscard()`/
+     `tryDiscardPuzzle()` only ever pass a tile drawn from the hand itself, and
+     `discardTile()`/`checkDiscardAnswer()` already validate membership before calling this — so no
+     production path was ever exposed to the bug, and none breaks from the fix.
+- [x] 2. **Verify (not just fix) the "does ukeire double-count or miss the player's own held
+     copies" concern.** Wrote two scripts before touching any code: one confirming
+     `ctx.visibleTiles` already includes the deciding player's own hand (from the earlier
+     concealed-hand fix), so `4 - visibleTiles[tile]` already correctly subtracts self-held copies
+     (holding a pair of a tile → `visibleTiles = 2`; holding all 4 → `visibleTiles = 4`, both
+     correct); the other confirming self-held and externally-exposed copies of the same tile
+     combine into one correct total (1 held + an opponent's exposed pong of 3 → `visibleTiles = 4`,
+     leaving 0 remaining, a genuinely dead wait). **Conclusion: not a bug** — but the invariant
+     wasn't documented anywhere and had no dedicated regression test, both of which the reviewer
+     explicitly asked for, so added both rather than just replying "already correct."
+- [x] 3. **Two new regression tests in `advisor.test.js`**, using the two scripts above as their
+     basis (both hand-checkable, not guessed): a hand where discarding one tile leaves a tenpai
+     tanki wait on a lone `dr`, asserting `ukeire === 3` (4 total copies minus the 1 already held);
+     and the same wait with an opponent's exposed pong of `dr` added, asserting `ukeire === 0`
+     (all 4 real copies now accounted for). Plus a third test locking in `evaluateDiscard()`'s new
+     throw for a tile not in hand.
+- [x] 4. **Softened the "quickest win" framing in `bestDiscard()`/`improvingTiles()`'s doc comments**
+     per the reviewer's documentation-precision suggestion: both now explicitly describe this as
+     *immediate*, one-draw ukeire and a one-step value estimate — an approximation of the
+     fastest/highest-value path, not a stronger expected-draws-to-win guarantee. No code changed
+     for this item, only what the code claims about itself.
+
+## Review
+
+### What was built
+
+One real, fixed bug (confirmed via script, not assumed from the report); one concern investigated
+and found to already be handled correctly, with the verification turned into a permanent regression
+test and an explicit doc comment rather than a private "checked, it's fine" left unrecorded; and a
+documentation precision fix with zero behavioural change. This round didn't need a puzzle-library or
+test-fixture recalibration — nothing here changes what any `bestDiscard()` call actually returns for
+a valid input, only what happens on an invalid one and what the code says about itself.
+
+### Test plan
+
+- `cd frontend && npm test` — 94/94 pass (91 previous + 3 new), stable across 6 consecutive runs.
+- `cd frontend && npm run test:components` — 13/13 pass.
+- `cd frontend && npm run build` — clean.
+- No manual browser re-check needed this round — nothing here is reachable through the UI in a way
+  that differs from what was already verified (the invalid-tile throw has no caller that could ever
+  trigger it from the app; the ukeire arithmetic was already correct, not changed).

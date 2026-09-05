@@ -259,10 +259,17 @@ function honourAndFlushPotential(player, ctx) {
 }
 
 /**
- * Ukeire: the total remaining copies (across every standard tile kind) of a tile that would move
- * this hand one step closer to winning right now. Two discards can leave the exact same *shanten*
- * while leaving very different real chances of advancing on the next draw — shanten's coarse
- * integer can't tell those apart, but ukeire is the field-standard measure that does.
+ * Ukeire: the total remaining copies (across every standard tile kind) of a tile that, drawn right
+ * now, would move this hand one step closer to winning. This is *immediate*, one-draw acceptance —
+ * how wide the very next draw's odds are — not a lookahead over the draws after that, so it's a
+ * meaningfully better speed signal than shanten's coarse integer alone without being a full
+ * expected-draws-to-win simulation (see `bestDiscard()`'s own doc comment for how this composes
+ * with shanten and value into one score, and why that combination is still an approximation).
+ *
+ * `ctx.visibleTiles` already includes the deciding player's own hand (see `contextFor()`), so
+ * `4 - (ctx.visibleTiles[tile] || 0)` already accounts for copies the player is already holding —
+ * holding 3 copies of a tile correctly leaves `remaining = 1`, not 4. Covered by a regression test
+ * below (`improvingTiles` is private; the test observes it through `evaluateDiscard()`'s `ukeire`).
  *
  * `current` is passed in rather than recomputed — the caller (`evaluateDiscard`) already has it as
  * `after`, and this already calls `shanten()` once per standard tile kind, so avoiding one more
@@ -280,22 +287,33 @@ function improvingTiles(player, ctx, current) {
 }
 
 /**
- * The full evaluation of one candidate discard: the resulting shanten, its ukeire, its estimated
- * value, and the blended score `bestDiscard()` ranks by. Exported so anything that needs to grade a
- * *different* tile against the recommendation — the decision log, puzzle answer checking — uses
- * these exact same real numbers instead of re-deriving the formula or trusting a capped
- * `alternatives` list (a mistake already made and fixed once this project; see the decision log's
- * own history).
+ * The full evaluation of one candidate discard: the resulting shanten, its immediate ukeire (see
+ * `improvingTiles()`), its estimated value, and the blended score `bestDiscard()` ranks by.
+ * Exported so anything that needs to grade a *different* tile against the recommendation — the
+ * decision log, puzzle answer checking — uses these exact same real numbers instead of re-deriving
+ * the formula or trusting a capped `alternatives` list (a mistake already made and fixed once this
+ * project; see the decision log's own history).
+ *
+ * `tile` must actually be in `player.hand` — this throws rather than silently misgrading a
+ * different tile. `Array.indexOf` returns `-1` for a tile that isn't there, and `splice(-1, 1)`
+ * would otherwise quietly remove the *last* tile in the hand and evaluate discarding that instead
+ * (the same failure mode already found and fixed once in `puzzles.js`'s `checkDiscardAnswer`).
+ * Every current caller already validates the tile first (`bestDiscard`/`tryDiscardPuzzle` only ever
+ * pass a tile drawn from the hand itself; `discardTile`/`checkDiscardAnswer` check membership before
+ * calling this), so the invariant is enforced here rather than trusted at every call site, now and
+ * for whoever calls this next.
  *
  * Computing real ukeire here (a `shanten()` call per standard tile kind, on top of the one for
  * `after`) is measurably the most expensive part of a `bestDiscard()` call — benchmarked at roughly
- * 20x the cost of the value-only version. Accepted deliberately: shanten alone under-describes
- * "quickest win," and this coach is not on a tight enough latency budget to need the cheaper,
- * coarser answer.
+ * 20x the cost of the value-only version. Accepted deliberately: shanten alone is a coarser speed
+ * signal than immediate ukeire, and this coach is not on a tight enough latency budget to need the
+ * cheaper, coarser answer.
  */
 export function evaluateDiscard(player, tile, ctx) {
   const rest = [...player.hand];
-  rest.splice(rest.indexOf(tile), 1);
+  const index = rest.indexOf(tile);
+  if (index === -1) throw new Error(`evaluateDiscard: "${tile}" is not in hand`);
+  rest.splice(index, 1);
   const nextPlayer = { ...player, hand: rest };
   const after = shanten(rest, player.melds);
   const value = estimateValue(nextPlayer, ctx);
@@ -307,14 +325,18 @@ export function evaluateDiscard(player, tile, ctx) {
 /**
  * The best tile to discard.
  *
- * Ranked primarily by speed, but not *only* by speed: every candidate within one shanten of the
- * fastest is also eligible, scored by a blend of resulting shanten, real ukeire (see
- * `improvingTiles()`), and `estimateValue()`, so a discard that's marginally slower — or that
- * merely *looks* equally fast because shanten can't see past its own integer — can still lose to
- * one that keeps more real outs or protects real value. The window is deliberately bounded to one
- * shanten: this is meant to catch "don't break a real dragon pair for one turn of speed," not
- * license "sacrifice several turns for a speculative hand," which would be bad advice for a coach
- * this simple. Ties on the blended score fall back to the bots' own `keepValue`, exactly as before.
+ * Ranked by a blend of three signals, not by speed alone: resulting shanten, immediate ukeire (see
+ * `improvingTiles()` — how wide the very next draw's odds are, not a lookahead beyond that), and
+ * `estimateValue()`. This is an approximation of "fastest, highest-value path to a win," not a
+ * guarantee of one — it optimises what the next single draw looks like, the same one-step horizon
+ * `estimateValue()` itself uses, not expected draws-to-win over the rest of the hand. Every
+ * candidate within one shanten of the fastest is eligible for this blend, so a discard that's
+ * marginally slower — or that merely *looks* equally fast because shanten can't see past its own
+ * integer — can still lose to one that keeps more real outs or protects real value. The window is
+ * deliberately bounded to one shanten: this is meant to catch "don't break a real dragon pair for
+ * one turn of speed," not license "sacrifice several turns for a speculative hand," which would be
+ * bad advice for a coach this simple. Ties on the blended score fall back to the bots' own
+ * `keepValue`, exactly as before.
  */
 export function bestDiscard(player, ctx) {
   const suitTotals = { d: 0, b: 0, c: 0 };
