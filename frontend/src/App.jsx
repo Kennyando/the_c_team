@@ -7,6 +7,10 @@ import { chooseDiscard, chooseClaim, chooseTurnAction } from './game/bots.js';
 import { DEFAULT_RULES } from './game/scoring.js';
 import { tileName } from './game/tiles.js';
 
+// The app starts a table with the animal tiles in (a Singapore house rule the engine leaves off by
+// default); Settings can still turn them back off.
+const START_RULES = { ...DEFAULT_RULES, includeAnimals: true };
+
 import Table from './components/Table.jsx';
 import Hand from './components/Hand.jsx';
 import { TileStyleProvider } from './components/Tile.jsx';
@@ -14,6 +18,7 @@ import CallBar from './components/CallBar.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import ScoreSheet from './components/ScoreSheet.jsx';
 import Settings from './components/Settings.jsx';
+import DiscardLog from './components/DiscardLog.jsx';
 import Coach from './components/Coach.jsx';
 import HandReview from './components/HandReview.jsx';
 import GameReview from './components/GameReview.jsx';
@@ -25,6 +30,20 @@ import useNarration from './hooks/useNarration.js';
 // Unhurried pacing — the "kopitiam mode" of proposal Section 6. There is no turn clock anywhere;
 // this is only how long the bots take so their moves can be followed.
 const PACE = 950;
+
+/**
+ * The starting tile size, picked so the whole table fits the window without scrolling. The layout
+ * is comfortable at scale 1.2 around 1180x760, so scale off whichever of width/height is tighter
+ * and clamp into the size slider's own range. Once the player moves the slider this is not used
+ * again (see `scaleAuto`).
+ */
+function fitScale() {
+  if (typeof window === 'undefined') return 1.2;
+  const byWidth = window.innerWidth / 1180;
+  const byHeight = window.innerHeight / 760;
+  const fit = Math.min(byWidth, byHeight) * 1.2;
+  return Math.round(Math.max(0.8, Math.min(fit, 1.2)) * 20) / 20;
+}
 
 /** Apply an engine function to a fresh copy of the state. */
 const advance = (state, fn) => fn(structuredClone(state));
@@ -57,15 +76,27 @@ export default function App() {
   // two destinations get a topbar with a Home button so there's always a way back.
   const [screen, setScreen] = useState('home');
 
-  const [rules, setRules] = useState(DEFAULT_RULES);
-  const [display, setDisplay] = useState({
-    scale: 1.2, contrast: false, voice: false, tileStyle: 'traditional', coachHints: false,
-    tableView: 'seated',
-  });
-  const [state, setState] = useState(() => newGame(DEFAULT_RULES, 0));
+  const [rules, setRules] = useState(START_RULES);
+  const [display, setDisplay] = useState(() => ({
+    scale: fitScale(), scaleAuto: true, contrast: false, voice: false,
+    tileStyle: 'traditional', coachHints: false, tableView: 'flat',
+  }));
+  const [state, setState] = useState(() => newGame(START_RULES, 0));
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [showDiscards, setShowDiscards] = useState(false);
+  // The narration pill shows the latest line, then fades itself out after a second so it never
+  // sits on the board as clutter while you think.
+  const [logShown, setLogShown] = useState(true);
+  const lastLog = state.log.at(-1);
+  const logLen = state.log.length;
+  useEffect(() => {
+    if (!logLen) return undefined;
+    setLogShown(true);
+    const t = setTimeout(() => setLogShown(false), 1000);
+    return () => clearTimeout(t);
+  }, [logLen]);
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -81,6 +112,16 @@ export default function App() {
     document.documentElement.style.setProperty('--tile-scale', display.scale);
     document.documentElement.dataset.theme = display.contrast ? 'contrast' : 'light';
   }, [display]);
+
+  // Until the player touches the size slider, keep the default tuned to the window so the whole
+  // table fits without scrolling. Once they set a size of their own, `scaleAuto` is off and we
+  // leave it alone.
+  useEffect(() => {
+    if (!display.scaleAuto) return;
+    const refit = () => setDisplay((d) => (d.scaleAuto ? { ...d, scale: fitScale() } : d));
+    window.addEventListener('resize', refit);
+    return () => window.removeEventListener('resize', refit);
+  }, [display.scaleAuto]);
 
   useNarration(state.log, display.voice);
 
@@ -135,6 +176,7 @@ export default function App() {
     setConfirm(null);
     setShowSettings(false);
     setShowReview(false);
+    setShowDiscards(false);
     setState((s) => newGame(rules, (s.dealer + 1) % 4, s.players.map((p) => p.points)));
   };
 
@@ -156,6 +198,9 @@ export default function App() {
           )}
           <span className="spacer" />
           {screen === 'play' && <button type="button" onClick={newHand}>New hand</button>}
+          {screen === 'play' && (
+            <button type="button" onClick={() => setShowDiscards(true)}>Discards</button>
+          )}
           {screen === 'play' && (
             <button type="button" className="primary" onClick={() => setShowSettings(true)}>
               Settings
@@ -180,11 +225,14 @@ export default function App() {
       {screen === 'play' && !showReview && (
         <>
           <main className={`table view-${display.tableView}`}>
-            <div className="log" aria-live="polite">{state.log.at(-1)}</div>
+            <div className="log" aria-live="polite" hidden={!logShown || !lastLog}>
+              {lastLog}
+            </div>
 
             <Table state={state} />
 
-            {/* Outside the scene on purpose: your hand is never tilted or foreshortened. */}
+            {/* Rests on the near edge of the table, but never tilted — the tiles you tap stay
+                flat and full size. */}
             <Hand
               player={you}
               dealer={state.dealer}
@@ -229,6 +277,14 @@ export default function App() {
               setRules={setRules}
               onClose={() => setShowSettings(false)}
               onNewHand={newHand}
+            />
+          )}
+
+          {showDiscards && (
+            <DiscardLog
+              discards={state.discards}
+              players={state.players}
+              onClose={() => setShowDiscards(false)}
             />
           )}
 

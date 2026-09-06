@@ -2691,41 +2691,199 @@ puts the board back to each decision and navigates between them.
 
 ---
 
-# Follow-up: root README (setup, install, project summary, dependency manifests)
+# Live-game UI polish (batch)
 
-The root `README.md` is a 2-line stub. Root `requirements.txt` is an empty leftover from a
-Python scaffold (`.gitignore` is the GitHub Python template) and is misleading — this repo is
-a JS/TS monorepo with no Python. Goal: make the root README the front door.
+Separate from PR #35. New branch `feature/game-ui-polish` off main.
 
-## Todo
-
-- [x] 1. New branch `feature/root-readme` off `main`
-- [x] 2. Rewrite `README.md`: setup & installation first (Node 18+, per-workspace `npm install`,
-      `cd frontend && npm run dev` -> http://localhost:5173); short project summary; repo layout;
-      "where dependencies are declared" — the requirements.txt equivalent is each workspace's own
-      `package.json` + `package-lock.json` (table of all three); env/config via the `.env.template`
-      files; per-workspace `npm test`.
-- [x] 3. Delete the empty stale root `requirements.txt` (user confirmed it is unused).
-- [x] 4. Commit, push, open PR against `main`.
+- [x] **0. Un-break `main` (blocking prerequisite).** PR #34's `5b7ac33` "Merge branch 'main'"
+      was resolved by taking `main`'s `tableLayout.js` + `Seat.jsx` wholesale while keeping the
+      feature branch's `Table.jsx` + `tableLayout.test.js` — so `handRows` (imported + tested)
+      was never in the source, and `Seat.jsx` kept a dead `<TileBack>` block (`TileBack` was
+      removed from `Tile.jsx` on the branch). Clean checkout of `main` failed 1 node + 11
+      component tests. Fix: restore `handRows` to `tableLayout.js` (drop the dead
+      `wallStacks`/`EDGES`, imported nowhere), delete the dead rack block from `Seat.jsx`. Both
+      suites green (111 node, 19 component).
+- [x] **1. Winning hand — show the whole hand, not just the winning tile.** `ScoreSheet.jsx`:
+      replaced the single `.confirm-tile` with a `.winning-hand` block — `players[winnerSeat]`'s
+      concealed tiles (winning tile flagged once via `hand.indexOf`), then exposed melds, then
+      flowers. No engine change (`finishHand` already folds the winning tile into `winner.hand`).
+- [x] **2. Tile name on hover.** `Tile.jsx` — `title={name}` on both the `<span>` and `<button>`
+      (same string as `aria-label`).
+- [x] **3. Adaptive default size.** `App.jsx` — new `fitScale()` sizes the default off the
+      viewport (`min(vw/1180, vh/760) * 1.2`, clamped 0.8–1.2, rounded to 0.05); `display.scale`
+      starts there and a `resize` listener re-fits while `scaleAuto` is true. Settings' slider
+      sets `scaleAuto: false`, so once the player picks a size it is never overridden.
+- [x] **4. Wind direction — swapped seat positions.** `Table.jsx`: `seat-right` <- `players[1]`,
+      `seat-left` <- `players[3]`. `EDGE_SEATS` -> `{ far: 2, right: 1, near: 0, left: 3 }` so the
+      felt racks and discard piles follow. Chow-from-your-left is now visually true.
+      `tableLayout.test.js` updated to expect seat order `[2, 1, 0, 3]`.
+- [x] **5. Top log message.** Moved `.log` to the top-left **and** made it dismissable — an ×
+      button (`App.jsx` `logShown` state, reset on each new narration line). `.log[hidden]`,
+      `.log-x`, and contrast overrides added to `styles.css`.
+- [x] **6. Vertical racks for the left & right opponents.** `.rack-edge-left` / `.rack-edge-right`
+      are now a single vertical column (`flex-direction: column`, `flex-wrap: nowrap`,
+      `justify-content: flex-end`) of side-on `.rack-tile` edges, anchored just above that seat's
+      melds. `.rack-edge-far` (top) unchanged.
+- [x] **7. Show the discard pile.** Dropped `max-height` + `overflow: hidden` +
+      `align-content: flex-end` from `.discard-pile` (and the `.discard-pile-far` cap) — piles now
+      grow with the river, nothing clipped. Row-gap tightened to 6px and discard tiles shrunk to
+      `0.4` so a full game's discards still fit the felt; `.discard-latest` still highlighted.
+- [x] Verify: 111 node + 23 component tests green, `npm run build` OK. Browser pass at several
+      viewport sizes + high-contrast: seat swap, dismissable log, vertical side racks aligned over
+      melds, full un-clipped discard river, and the full winning hand on a real bot win.
 
 ## Review
 
-### What changed
+### What changed (all frontend, all presentational)
 
-- **`README.md`** rewritten from the 2-line stub into the repo front door, in the
-  order requested: (1) Setup & installation — prerequisites, per-workspace
-  `npm install` (frontend / agents / backend, with install order and why),
-  `npm run dev` -> localhost:5173, per-workspace `npm test`, and the optional
-  `.env` files; (2) a short "What this is" summary — single-player Singapore
-  Mahjong vs 3 bots, accessibility-first UI, local help coach + optional AWS
-  model tiers, post-hand review; (3) repository layout table (`frontend/`,
-  `agents/`, `backend/`, `docs/`, `tasks/`); (4) "Where dependencies are
-  declared" — the `requirements.txt` equivalent is each workspace's own
-  `package.json` + `package-lock.json`, in a table.
-- **`requirements.txt`** (empty, root, Python-scaffold leftover) deleted — the
-  README now documents the real Node manifests, so a contradictory empty file is
-  worse than none. `.gitignore` still carries the old Python template's rules;
-  left untouched (out of scope, harmless).
+**Prerequisite:** `main` was broken by PR #34's botched "merge main" commit — `handRows` was
+imported and tested but never actually in `tableLayout.js`, and `Seat.jsx` referenced a
+`<TileBack>` that had been removed from `Tile.jsx`. A clean checkout failed 12 tests. Restored
+`handRows`, deleted the dead `wallStacks`/`EDGES` (imported nowhere) and the dead `Seat.jsx` rack
+block. (commit 1)
 
-Docs only — no code, config or dependency changes.
+**The 7 UI items** (commit 2):
 
+| # | File(s) | Change |
+|---|---------|--------|
+| 1 | `ScoreSheet.jsx`, `styles.css` | End-of-hand sheet shows the winner's whole hand (concealed + melds + flowers), winning tile ringed |
+| 2 | `Tile.jsx` | `title` tooltip = the tile's spoken name, on every rendered tile |
+| 3 | `App.jsx`, `Settings.jsx` | Default tile size fits the viewport and re-fits on resize until the slider is touched |
+| 4 | `Table.jsx`, `tableLayout.js`, `tableLayout.test.js` | Seat 1 drawn on the right, seat 3 on the left — play now reads counter-clockwise; chow-from-left is visually true |
+| 5 | `App.jsx`, `styles.css` | Narration pill moved top-left and given a dismiss × |
+| 6 | `styles.css` | Left/right opponents' concealed tiles are a vertical column of side-on backs, above their melds |
+| 7 | `styles.css` | Discard piles no longer clip — the whole river stays visible for every seat |
+
+### Tests
+
+- `test/tableLayout.test.js` — updated seat-order expectation for the swap.
+- `test/ScoreSheet.test.jsx` (new) — winner's full hand renders (15 tiles incl. melds + flower),
+  exactly one winning-tile flag even with a duplicate, every tile carries a `title`.
+- `test/App.test.jsx` — the narration pill dismisses.
+- 111 node + 23 component green; `npm run build` clean.
+
+### Notes / possible follow-ups
+
+- The side rack columns sit partly behind the name plate on seats with no melds yet — the side
+  regions of the seated view are genuinely cramped between plate and melds. Acceptable; a proper
+  fix would move the rack into the `Seat` flex column.
+- `fitScale` caps at 1.2 (the old fixed default) so desktop is unchanged; it only ever shrinks,
+  for short/small windows.
+
+---
+
+## Round 2 — feedback on the annotated screenshot (same branch / PR #36)
+
+- [x] **R2-1. "Show all discards" button + panel.** New topbar `Discards` button opens
+      `DiscardLog.jsx` — a `.backdrop`/`.dialog` with one row per player (turn order, you first):
+      `name · count` then every tile that player threw, flat and full-size, in order. `showDiscards`
+      state in `App.jsx`, reset in `newHand()`. CSS: `.discard-log-row/-name/-count/-tiles`.
+- [x] **R2-2. Discards in front of their owner.** `.discard-pile-*` repositioned into four
+      strips — far under Ah Gong, near just above your hand, left/right down each side by their
+      seat — each just clear of that seat's plate and melds, with the table centre left open.
+- [x] **R2-3. Narration pill auto-hides after 1s.** `App.jsx` — each new `state.log` line shows
+      the pill and arms a 1000ms `setTimeout` to hide it (cleared on the next line). Manual ×
+      removed (`.log-x` / `.log-text` gone). `App.test.jsx` updated to fake timers.
+- [x] **R2-4. Side racks out to the edge + aligned.** `.rack-edge-left/right` moved from
+      `left/right: 19%` to `4%`, vertically centred (`top: 42%; translateY(-50%)`,
+      `justify-content: center`), tiles bumped to `0.5 × 0.11`. Whole column visible, clear of
+      the plate.
+- [x] Verify: 111 node + 24 component green, `npm run build` clean. Browser pass at 1400×860 and
+      in high-contrast: Discards panel, per-seat piles clear of plates/melds, pill gone ~1s after
+      each move, racks fully visible at the edges.
+
+### Round 2 review
+
+Follow-up on the annotated screenshot, same branch / PR #36.
+
+- **Discards panel** (`DiscardLog.jsx`, new) — the felt view is foreshortened and split four ways;
+  this is the flat, full-size, in-order read. Topbar button between *New hand* and *Settings*.
+- **Per-seat discard strips** — the four `.discard-pile-*` blocks now sit in their owner's part of
+  the felt instead of one heap at the centre. The seated 3-D view is cramped on the sides, so the
+  strips are tuned to just clear each plate/meld rather than sit dead in front — the panel is the
+  precise reference.
+- **1-second narration pill** — shows the latest line, then removes itself, so it isn't parked over
+  the far seat while you think. Replaces the manual dismiss ×.
+- **Edge racks** — the side columns are at the table edge now and fully visible, vertically centred
+  on the seat.
+- Tests: `App.test.jsx` gained the Discards-panel test and switched the pill test to fake timers.
+
+## Round 3 — default to the top-down view + animal tiles (same branch / PR #36)
+
+- [x] **R3-1. Flat (top-down) view is the default.** `App.jsx` `display.tableView` starts `'flat'`
+      instead of `'seated'`. Settings still switches it. `docs/mvp-notes.md` updated.
+- [x] **R3-2. Animal tiles on by default.** `App.jsx` starts its `rules` (and the first `newGame`)
+      from `START_RULES = { ...DEFAULT_RULES, includeAnimals: true }` — a frontend-only override,
+      so the shared engine/agent `DEFAULT_RULES` (and every test that spreads it) stay at 144.
+      Settings' house-rules toggle still turns it off. `docs/mvp-notes.md` updated.
+- [x] **R3-3. Discard overlap is fine now.** Left as-is — with the Discards panel for the precise
+      read, the felt piles can overlap a meld or plate without it mattering; no extra spreading.
+- [x] Verify: 111 node + 25 component green, `npm run build` clean. Browser: table opens flat with
+      animal bonus tiles (貓/鼠/雞/蟲) dealt; `App.test.jsx` asserts both defaults.
+
+---
+
+# Seated table refactor toward the reference riichi layout
+
+New branch `feature/seated-table-reference` off `feature/game-ui-polish`. Plan file:
+`~/.claude/plans/seated-table-reference-refactor.md`. Draft cut — get structurally close to a
+3-D isometric riichi table; the art (avatars, textures, HUD) is out of scope by the user's call.
+Kept: Discards button, tile name-hover, animal tiles default. Flat stays a Settings option.
+
+- [x] **Overlay the hand on the table.** `.hand-area` is `position: absolute; bottom: 0` over the
+      bottom of the scene, still upright and full size (tile bump trimmed 1.35 -> 1.16, chrome
+      slimmed). `.scene` is `position: absolute; inset: 0`; the surface pivots on its top edge
+      (`transform-origin: 50% 0`) so the table hangs from under the topbar and its near edge comes
+      forward to the hand. The `50vh` mobile split is gone — the hand scrolls inside itself.
+- [x] **Cohesive seats.** `Seat.jsx` now owns the plate **+** the concealed-tile wall (moved in
+      from `Table.jsx`) **+** the melds/bonus, as one flex block positioned once per edge. The
+      three overlapping `position:absolute` systems that caused the collisions are gone.
+- [x] **Six-wide discard rivers.** `tableLayout.js` `discardPosition(index)` -> `{ row, column }`;
+      `Table.jsx` places each discard into a `repeat(6, auto)` grid via explicit `gridRow/gridColumn`.
+      One river per seat, ringing the centre board.
+- [x] **Chunky 3-D tiles.** `--tile-body` var + `.tile { box-shadow: 0 5px 0 var(--tile-body),
+      0 8px 10px rgb(0 0 0 / 30%); border-radius: 5px }` (smaller for `.tile.small`), spacing
+      bumps, high-contrast override to a flat black edge.
+- [x] **`<CenterBoard round dealer remaining scores />`** (new) — the dark plate in the middle:
+      round label (derived from `dealer` + `prevailingWind`, no engine change), tiles-left, one
+      score per seat with the dealer marked. `aria-hidden` (topbar already announces the count).
+- [x] **Seated is the default again** (`display.tableView: 'seated'`); Flat kept in Settings.
+- [x] Verify: 110 node + 26 component green, `npm run build` clean. Browser pass at 1280x640 /
+      1400x860 / mobile / high-contrast + flat view. `tableLayout.test.js` swapped
+      `handRows` -> `discardPosition`; new `CenterBoard.test.jsx`; `App.test.jsx` default -> seated.
+
+## Review
+
+A first cut of the reference layout. What lands: one continuous 3-D table with your hand resting
+big on its near edge, each opponent as a self-contained plate+wall+melds unit (no more
+rack/name/meld overlap), six-wide discard rivers around a real centre board, and tiles with a
+chunky extruded side. Menus, Coach, CallBar, Discards panel, tile name-hover, animal-tile default
+all unchanged.
+
+What it deliberately does not match: the reference's character avatars, felt/tile texture art,
+animations, and the riichi HUD (理/和/鳴/切, 役 list, dora) — out of scope.
+
+Rough edges to iterate on next: side-seat blocks read a little sparse (plate floats above a short
+vertical wall); the far river can grow into the centre board after ~2 rows (the Discards panel is
+the precise read); very short landscape (<= ~450px tall) still crams. Flat view inherits the
+overlay and the seat refactor but was only spot-checked.
+
+### Round 2 of the seated refactor — feedback on the annotated screenshot
+
+- [x] **Flat (top-down) is the default again** (`display.tableView: 'flat'`); `App.test.jsx` back
+      to asserting `view-flat`. Seated stays a Settings option.
+- [x] **Centre board removed entirely.** `CenterBoard.jsx` + `CenterBoard.test.jsx` deleted, the
+      `<CenterBoard>` render and its `.center-*` CSS gone. Nothing replaces it — the middle is
+      open felt.
+- [x] **Ah Gong's exposed sets go to the top-right corner.** `.seat-far` now spans the full
+      width and is flush to the top edge; `.seat-far .seat-open` is `position: absolute; top: 0;
+      right: 0` as a vertical stack, so the far player's melds/flowers park in the corner clear
+      of the plate, wall and discards.
+- [x] **Coach responses were tiny.** `.coach-panel` gets a `font-size: max(16px, …)` floor so
+      the answer text stays readable when the tile slider is low; answer title, quick buttons and
+      `.coach-q` get `max()` floors too; the answer tile is bumped to ~full size; the panel is a
+      touch wider (480px) and `.coach-answers` has a `30vh` min-height so a short answer isn't
+      crammed into a sliver.
+- [x] Verify: 110 node + 25 component green (CenterBoard test removed), build clean. Browser:
+      flat default + seated both show Ah Gong flush-top with corner melds and no centre card;
+      Coach text is comfortably sized.

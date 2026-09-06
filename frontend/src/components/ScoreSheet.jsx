@@ -27,6 +27,11 @@ export default function ScoreSheet({ result, players, onNewHand, children }) {
     ? 'self-drawn from the wall'
     : `on ${SEAT_NAMES[result.fromSeat]}'s discard`;
 
+  // The winning hand as it finished: concealed tiles (the winning tile among them, flagged once),
+  // then any exposed melds, then flowers. `finishHand` folds the winning tile into `winner.hand`.
+  const winner = players[result.winnerSeat];
+  const winIndex = winner.hand.indexOf(result.winningTile);
+
   return (
     <div className="backdrop" role="dialog" aria-modal="true" aria-label="Hand result">
       <div className="dialog">
@@ -34,7 +39,25 @@ export default function ScoreSheet({ result, players, onNewHand, children }) {
         <p>
           Won with <strong>{tileName(result.winningTile)}</strong>, {how}.
         </p>
-        <div className="confirm-tile"><Tile tile={result.winningTile} /></div>
+        <div className="winning-hand" aria-label={`${result.winnerName}'s winning hand`}>
+          <div className="winning-hand-tiles">
+            {winner.hand.map((t, i) => (
+              <span key={i} className={i === winIndex ? 'winning-tile' : undefined}>
+                <Tile tile={t} small />
+              </span>
+            ))}
+          </div>
+          {winner.melds.map((meld, m) => (
+            <span className="seat-meld" key={m}>
+              {meld.tiles.map((t, i) => <Tile key={i} tile={t} small />)}
+            </span>
+          ))}
+          {winner.bonus.length > 0 && (
+            <span className="seat-meld">
+              {winner.bonus.map((t, i) => <Tile key={i} tile={t} small />)}
+            </span>
+          )}
+        </div>
 
         <table className="score-table">
           <tbody>
