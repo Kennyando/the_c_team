@@ -507,6 +507,9 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .home-screen { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; }
 
 .puzzle-screen {
+  /* Positioned so the reused .hand-area (which is position:absolute) overlays the bottom of the
+     puzzle screen — the way it overlays .table in the live game — rather than the viewport. */
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
