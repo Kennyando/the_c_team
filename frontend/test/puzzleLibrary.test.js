@@ -13,9 +13,9 @@ import { PUZZLE_LIBRARY } from '../src/game/puzzleLibrary.js';
 
 const TIERS = ['easy', 'medium', 'hard'];
 
-test('the library has exactly 3 puzzles in each of easy, medium, and hard', () => {
+test('the library has exactly 5 puzzles in each of easy, medium, and hard', () => {
   assert.deepEqual(Object.keys(PUZZLE_LIBRARY).sort(), TIERS.slice().sort());
-  for (const tier of TIERS) assert.equal(PUZZLE_LIBRARY[tier].length, 3, tier);
+  for (const tier of TIERS) assert.equal(PUZZLE_LIBRARY[tier].length, 5, tier);
 });
 
 test('every puzzle has a unique id and a 14-tile hand', () => {

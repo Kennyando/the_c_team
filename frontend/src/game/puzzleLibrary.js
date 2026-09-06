@@ -1,4 +1,4 @@
-// Curated discard puzzles: 3 hand-picked positions per difficulty tier, replacing the
+// Curated discard puzzles: 5 hand-picked positions per difficulty tier, replacing the
 // endless-random-hand mode this repo shipped in PR #6 with a fixed, browsable library — pick a
 // tier, pick a numbered puzzle, solve it, like a chess puzzle set.
 //
@@ -11,12 +11,15 @@
 // library and frozen.
 //
 // `easy-1`/`medium-1`/`medium-2` were replaced once already when `bestDiscard()` became
-// value-aware, and 8 of these 9 were replaced again when it gained real ukeire on top of that:
-// weighing genuine tile-acceptance counts differentiates almost every non-symmetric discard, so
-// exact ties (this library's whole difficulty metric) collapsed hard, and the tier thresholds in
-// `puzzles.js` were recalibrated a third time to match. Only `medium-2` happened to still land in
-// its original tier under the new calculator and was kept unchanged; the other 8 were swapped for
-// freshly-found hands re-verified against the current thresholds.
+// value-aware, and 8 of the original 9 were replaced again when it gained real ukeire on top of
+// that: weighing genuine tile-acceptance counts differentiates almost every non-symmetric
+// discard, so exact ties (this library's whole difficulty metric) collapsed hard, and the tier
+// thresholds in `puzzles.js` were recalibrated a third time to match. Only `medium-2` happened to
+// still land in its original tier under the new calculator and was kept unchanged; the other 8
+// were swapped for freshly-found hands re-verified against the current thresholds. `*-4`/`*-5`
+// were then added per tier by the same random-hand search, chosen to spread the set across
+// distance-to-ready and best-tile shape (terminal / near-edge / middle / lone honour) — including
+// a few where a tempting lone wind or dragon is deliberately *not* the answer.
 //
 // `discards`/`wallCount` are presentation only — a plausible-looking table, not a replayed game —
 // so a puzzle looks like a real mid-hand snapshot instead of an isolated list of 14 tiles.
@@ -43,6 +46,22 @@ const RAW = {
       discards: [{ tile: 'ww', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'd9', by: 3 }],
       wallCount: 66,
     },
+    {
+      // Closer to ready (2-away) with a dragon triplet already down — the lone 1 Bamboo is the
+      // odd tile out, not one of the several honours you might expect to shed.
+      id: 'easy-4',
+      hand: ['d2', 'd3', 'd5', 'd7', 'b1', 'b4', 'c3', 'c4', 'c5', 'c7', 'we', 'dw', 'dw', 'dw'],
+      discards: [{ tile: 'wn', by: 1 }, { tile: 'd1', by: 2 }, { tile: 'c9', by: 3 }],
+      wallCount: 68,
+    },
+    {
+      // Two wind pairs sitting there, but the right throw is the lone 2 Dots — keeping the pairs
+      // (either could still become a scoring triplet) beats keeping an isolated near-terminal.
+      id: 'easy-5',
+      hand: ['d2', 'd7', 'b5', 'b9', 'b9', 'c3', 'c3', 'c7', 'c8', 'ww', 'ww', 'wn', 'wn', 'dw'],
+      discards: [{ tile: 'we', by: 1 }, { tile: 'd9', by: 2 }, { tile: 'b1', by: 3 }, { tile: 'dr', by: 1 }],
+      wallCount: 66,
+    },
   ],
   medium: [
     {
@@ -66,6 +85,28 @@ const RAW = {
       discards: [
         { tile: 'we', by: 1 }, { tile: 'c9', by: 2 }, { tile: 'ws', by: 3 },
         { tile: 'b1', by: 1 }, { tile: 'wn', by: 2 },
+      ],
+      wallCount: 50,
+    },
+    {
+      // 2-away and no honour to fall back on — the choice is between suited tiles, and the
+      // isolated 7 Bamboo edges out the lone East Wind you might be tempted to drop first.
+      id: 'medium-4',
+      hand: ['d1', 'd2', 'd6', 'd6', 'd7', 'b3', 'b4', 'b7', 'c1', 'c2', 'c3', 'c6', 'c7', 'we'],
+      discards: [
+        { tile: 'ww', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'd9', by: 3 },
+        { tile: 'b9', by: 1 }, { tile: 'c9', by: 2 },
+      ],
+      wallCount: 52,
+    },
+    {
+      // A long way out (4-away) and bamboo-heavy: the 1 Characters is the one tile with nothing
+      // to build on, narrowly ahead of the lone red dragon.
+      id: 'medium-5',
+      hand: ['d1', 'd3', 'd6', 'b1', 'b1', 'b2', 'b3', 'b5', 'b7', 'b9', 'c1', 'c4', 'c7', 'dr'],
+      discards: [
+        { tile: 'we', by: 1 }, { tile: 'd8', by: 2 }, { tile: 'ws', by: 3 },
+        { tile: 'c9', by: 1 }, { tile: 'wn', by: 2 },
       ],
       wallCount: 50,
     },
@@ -95,6 +136,29 @@ const RAW = {
       discards: [
         { tile: 'we', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'b1', by: 3 },
         { tile: 'd1', by: 1 }, { tile: 'c4', by: 2 }, { tile: 'ww', by: 3 },
+      ],
+      wallCount: 34,
+    },
+    {
+      // One tile from ready, and only one discard keeps it there: the isolated 3 Characters.
+      // Everything else — the 6 Bamboo triplet, the 7-8-9 run, the South Wind pair — is load-bearing.
+      id: 'hard-4',
+      hand: ['d4', 'd6', 'b1', 'b2', 'b6', 'b6', 'b6', 'c3', 'c7', 'c8', 'c9', 'we', 'ws', 'ws'],
+      discards: [
+        { tile: 'ww', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'd1', by: 3 },
+        { tile: 'b9', by: 1 }, { tile: 'c1', by: 2 }, { tile: 'dr', by: 3 },
+      ],
+      wallCount: 36,
+    },
+    {
+      // 2-away: the 9 Dots is the single tile to let go. The 6-7-7 Dots block already wants 5 or 8,
+      // and the doubled 7 Characters is a better pair than anything a lone terminal 9 offers. The
+      // only unique best in the set.
+      id: 'hard-5',
+      hand: ['d6', 'd7', 'd7', 'd9', 'b3', 'b5', 'b8', 'b9', 'c2', 'c3', 'c4', 'c7', 'c7', 'dr'],
+      discards: [
+        { tile: 'we', by: 1 }, { tile: 'wn', by: 2 }, { tile: 'b1', by: 3 },
+        { tile: 'd1', by: 1 }, { tile: 'c9', by: 2 }, { tile: 'ww', by: 3 },
       ],
       wallCount: 34,
     },

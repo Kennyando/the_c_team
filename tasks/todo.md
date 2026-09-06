@@ -2611,6 +2611,24 @@ hallucination the guardrails miss inflates it.
 
 ---
 
+# Add 2 more discard puzzles per difficulty (3 -> 5 per tier)
+
+Found by the same random-hand search the library was built with (`tryDiscardPuzzle` over dealt
+14-tile hands, bucketed by `tieCount`), then hand-picked for spread.
+
+- [x] `frontend/src/game/puzzleLibrary.js` — `easy-4/5`, `medium-4/5`, `hard-4/5`. Each verified
+      WITH its curated `discards` (which feed `puzzleContext` visibleTiles, so they can shift the
+      derived tier) to land in its filed tier. Diversity: best tile is terminal / near-edge /
+      middle / lone-honour across the set; `shantenBefore` spans 1–4; two of them (`medium-4`,
+      `easy-5`) have a tempting lone wind that is deliberately NOT the answer; `hard-4` is a
+      one-away position (none of `hard-1..3` were near tenpai). Header comment updated.
+- [x] `frontend/test/puzzleLibrary.test.js` — "exactly 3" → "exactly 5". (The tier-correctness
+      test already loops every entry, so all 30 are validated at import + in the suite.)
+- [x] `frontend/test/Puzzle.test.jsx` — count assertion now derives from `PUZZLE_LIBRARY[tier].length`
+      instead of a hardcoded 3.
+- [x] `docs/mvp-notes.md` #10 — "8 of the 9" → "8 of the (then 9, now 15)".
+- [x] frontend 108/108 node + 13/13 component. `Puzzle.jsx` renders `Puzzle {i+1}` per entry — no
+      code change needed.
 # Default the review + coach agents to Nova 2 Lite
 
 The `bench:coach` comparison (nova-lite / nova-pro / nova-2-lite) settled it: nova-pro's JSON
