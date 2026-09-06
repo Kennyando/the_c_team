@@ -16,6 +16,9 @@
   --panel-edge: #c9bfa6;
   --tile-face: #fffdf7;
   --tile-edge: #a89877;
+  /* A real modern set is an ivory face on a green base; these draw that back as a shallow 3D lip. */
+  --tile-green: #2f7d5b;
+  --tile-lift: 0 10px 12px rgba(0, 0, 0, 0.35);
   --accent: #b3271e;
   --accent-text: #ffffff;
   --highlight: #ffd23f;
@@ -39,6 +42,8 @@
   --panel-edge: #000000;
   --tile-face: #ffffff;
   --tile-edge: #000000;
+  --tile-green: #000000;
+  --tile-lift: 0 0 0 transparent;
   --accent: #000000;
   --accent-text: #ffff00;
   --highlight: #ffff00;
@@ -176,12 +181,21 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .wall-edge { position: absolute; display: flex; align-items: center; justify-content: center; }
 .wall-edge-far { top: 4%; left: 50%; transform: translateX(-50%); }
 .wall-edge-near { bottom: 4%; left: 50%; transform: translateX(-50%); }
-.wall-edge-left { left: 4%; top: 50%; transform: translateY(-50%) rotate(90deg); }
-.wall-edge-right { right: 4%; top: 50%; transform: translateY(-50%) rotate(90deg); }
+/* At this tile size a full row no longer fits in the table's height. The wall is decorative (it
+   doesn't track which end has been drawn from — see PR #12), so rather than wrap into a block
+   thick enough to reach the seat beside it, it stays a single row and simply runs out of room:
+   width caps how long it can grow, and any stacks past that just don't render. */
+.wall-edge-left, .wall-edge-right {
+  top: 50%;
+  width: min(70%, 480px);
+  overflow: hidden;
+}
+.wall-edge-left { left: 4%; transform: translateY(-50%) rotate(90deg); }
+.wall-edge-right { right: 4%; transform: translateY(-50%) rotate(90deg); }
 .stack {
   flex: none;
-  width: calc(var(--tile-w) * 0.30);
-  height: calc(var(--tile-h) * 0.26);
+  width: calc(var(--tile-w) * 0.60);
+  height: calc(var(--tile-h) * 0.52);
   border-radius: 3px;
   background: linear-gradient(#f2ead6, #cdbf9e);
   border: 1px solid #8d7c58;
@@ -202,7 +216,9 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   transform: translateZ(30px) rotateX(calc(var(--tilt) * -1));
   transform-origin: 50% 100%;
 }
-.seat-far { bottom: 74%; left: 26%; width: 48%; }
+/* Pulled down from the wall's own edge inset (4% from the top) so the standing rack never crosses
+   the wall lying flat above it — same reasoning as the left/right seats below. */
+.seat-far { bottom: 64%; left: 26%; width: 48%; }
 /* Pulled in from the wall's own edge inset (4%) so the standing rack never crosses the wall lying
    flat beside it — on a real table your hand sits inside your wall, not on top of it. */
 .seat-left { bottom: 44%; left: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
@@ -228,23 +244,10 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .seat.active .seat-turn { color: var(--ink); }
 .seat-meta { font-size: calc(13px * var(--tile-scale)); opacity: 0.9; }
 
-/* A face-down tile. `flex: none` matters: without it a rack of 13 collapses to nothing. */
-.tile-back {
-  flex: none;
-  width: calc(var(--tile-w) * 0.30);
-  height: calc(var(--tile-h) * 0.36);
-  border-radius: 4px;
-  background: repeating-linear-gradient(45deg, #2f7d5b, #2f7d5b 4px, #266649 4px, #266649 8px);
-  border: 2px solid #1d4d38;
-  box-shadow: 0 2px 0 #17553b;
-}
-[data-theme='contrast'] .tile-back { background: #333; border-color: #fff; box-shadow: none; }
-
-.rack { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 100%; }
 .seat-open { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 100%; }
 .seat-meld { display: flex; gap: 2px; padding: 3px; border-radius: 7px; background: rgba(0, 0, 0, 0.35); }
-/* Exposed sets sit smaller than the rack: a player with three or four melds would otherwise grow
-   tall enough to push their own name plate off the top of the table. */
+/* Exposed sets sit smaller than a full tile: a player with three or four melds would otherwise
+   grow tall enough to push their own name plate off the top of the table. */
 .seat-meld .tile.small {
   width: calc(var(--tile-w) * 0.46);
   height: calc(var(--tile-h) * 0.46);
@@ -274,11 +277,13 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   position: absolute;
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  /* Generous row-gap: once each tile stands fully upright a back row hides behind the row in
+     front unless the rows are spaced apart, so the pile is legible as stacked standing tiles. */
+  gap: 12px 3px;
   justify-content: center;
   /* A bounded box, not just a bounded width: a seat with an unusually long run of discards must
      stop growing rather than reach into another seat's or the table's other regions. */
-  max-height: calc(var(--tile-h) * 0.62 * 4 + 6px);
+  max-height: calc(var(--tile-h) * 0.62 * 4 + 42px);
   overflow: hidden;
   /* Rows pack toward this edge, so once the pile is full it's always the oldest discards that get
      clipped off — the newest, the one an actual decision depends on, never disappears. */
@@ -309,6 +314,17 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   transform: translateY(-50%) translateZ(12px);
 }
 
+/* Every discarded tile — all four players' piles — stands fully upright out of the table tilt,
+   pivoting on the edge that rests on the felt, so each pile reads as a row of real tiles someone
+   tossed down rather than a flat grid. The green base and lift shadow then show as the tile's
+   thickness and its contact with the cloth. `.discard-latest` below is defined after this and
+   wins the shared `transform`, so the newest tile is lifted forward of the rest. When --tilt is
+   0 (flat view / reduced motion) this is rotateX(0) and the tiles lie flat with no special-casing. */
+.discard-tile {
+  transform: rotateX(calc(var(--tilt) * -1));
+  transform-origin: 50% 100%;
+}
+
 /* The tile just thrown stands up at full size, square to you — it is the one thing on the table a
    decision actually depends on, so it must not be foreshortened with the rest of its pile. */
 .discard-latest {
@@ -324,6 +340,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   height: var(--tile-h);
   border-radius: 9px;
   border: 3px solid var(--tile-edge);
+  border-bottom-color: var(--tile-green);
   background: var(--tile-face);
   color: var(--ink);
   display: flex;
@@ -333,7 +350,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   gap: 2px;
   padding: 0;
   min-height: 0;
-  box-shadow: 0 3px 0 var(--tile-edge);
+  /* White face sitting on a green base, lifted a little off the felt — a shallow 3D block. */
+  box-shadow: 0 7px 0 var(--tile-green), var(--tile-lift);
   flex: none;
 }
 /* Traditional faces are SVG, so they scale with the tile — and therefore with the size slider —
@@ -353,12 +371,12 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 [data-theme='contrast'] .tile .main,
 [data-theme='contrast'] .tile .sub { color: #000; }
 
-.tile.small { --tile-scale-inner: 0.62; width: calc(var(--tile-w) * 0.62); height: calc(var(--tile-h) * 0.62); box-shadow: none; }
+.tile.small { --tile-scale-inner: 0.62; width: calc(var(--tile-w) * 0.62); height: calc(var(--tile-h) * 0.62); box-shadow: 0 4px 0 var(--tile-green), var(--tile-lift); }
 .tile.small .main { font-size: calc(var(--tile-h) * 0.26); }
 .tile.small .sub { font-size: calc(var(--tile-h) * 0.14); }
 
 .tile.selectable:hover { transform: translateY(-6px); }
-.tile.just-drawn { border-color: var(--highlight); box-shadow: 0 0 0 4px var(--highlight); }
+.tile.just-drawn { border-color: var(--highlight); box-shadow: 0 0 0 4px var(--highlight), 0 7px 0 var(--tile-green); }
 .tile.dimmed { opacity: 0.55; }
 
 /* ---------- your hand ---------- */
@@ -675,7 +693,6 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   .table { --tilt: 30deg; --table-scale: 1.02; }
   .seat-far { bottom: 68%; }
   .seat-left, .seat-right { bottom: 42%; }
-  .rack .tile-back { width: calc(var(--tile-w) * 0.24); height: calc(var(--tile-h) * 0.28); }
   /* A short table leaves each pile very little room, so let them run wider before wrapping. */
   .discard-pile-far, .discard-pile-near { width: min(260px, 40%); }
   .discard-pile-left, .discard-pile-right { width: min(140px, 20%); }

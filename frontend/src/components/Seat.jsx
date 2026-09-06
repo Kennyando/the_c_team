@@ -1,16 +1,15 @@
-import Tile, { TileBack } from './Tile.jsx';
+import Tile from './Tile.jsx';
 import { tileName } from '../game/tiles.js';
 import { seatWindOf } from '../game/scoring.js';
 
 const WIND_LABEL = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
 
 /**
- * An opponent at their side of the table: a standing rack of face-down tiles, with their exposed
- * sets and flowers laid in front of it.
+ * An opponent at their side of the table: their name plate, with any exposed sets and flowers
+ * laid in front of it.
  *
- * The rack is counter-rotated out of the table's tilt so it stands upright, and the name plate is
- * kept square to the reader — a label lying on the receding surface would be exactly the kind of
- * skewed text this app exists to avoid.
+ * The name plate is kept square to the reader — a label lying on the receding surface would be
+ * exactly the kind of skewed text this app exists to avoid.
  */
 export default function Seat({ player, dealer, active, className }) {
   const wind = WIND_LABEL[seatWindOf(player.seat, dealer)];
@@ -25,11 +24,6 @@ export default function Seat({ player, dealer, active, className }) {
         <span className="seat-meta">
           {wind} · {player.points >= 0 ? '+' : ''}{player.points}
         </span>
-      </div>
-
-      {/* The concealed hand, standing with its backs to you. */}
-      <div className="rack" aria-label={`${player.name} holds ${player.hand.length} tiles`}>
-        {player.hand.map((_, i) => <TileBack key={i} />)}
       </div>
 
       {(player.melds.length > 0 || player.bonus.length > 0) && (
