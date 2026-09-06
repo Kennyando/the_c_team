@@ -31,6 +31,9 @@ test('opening a puzzle shows the opponents, the curated discards, and every hand
   expect(screen.getByText('Ah Gong')).toBeTruthy();
   expect(screen.getByText('Ah Huat')).toBeTruthy();
 
+  // The board shows top-down (flat), not the tilted seated view.
+  expect(document.querySelector('.puzzle-screen .table').className).toMatch(/view-flat/);
+
   // The curated discard pile, not the live game's empty-pool placeholder text.
   expect(screen.queryByText('No tiles discarded yet')).toBeNull();
 
