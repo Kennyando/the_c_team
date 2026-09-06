@@ -132,6 +132,46 @@ test('a line naming a pattern the table does play is fine', async () => {
   assert.equal(result.modelAssisted, true);
 });
 
+// --- grounding: no number that contradicts a cited fact --------------------------------------
+
+test('a line stating a tai count its cited handValue fact contradicts drops the reply', async () => {
+  // "how much is my hand worth" keeps the handValue fact (f6); POSITION's best win is 0 tai.
+  mockReply({ answer: [{ refs: ['f6'], text: 'If you win it is worth 8 tai here.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'how much is my hand worth' });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('a line stating the wall count its cited wall fact contradicts drops the reply', async () => {
+  mockReply({ answer: [{ refs: ['f2'], text: 'Only 20 tiles left in the wall now.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'how is it going' });
+  assert.equal(result.modelAssisted, false); // POSITION.wallCount is 70
+});
+
+test('a line stating the right number is fine', async () => {
+  mockReply({ answer: [{ refs: ['f2'], text: 'There are 70 tiles left in the wall.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'how is it going' });
+  assert.equal(result.modelAssisted, true);
+});
+
+test('a hedged or limit-context number is not policed', async () => {
+  for (const text of [
+    'It could be worth about 8 tai if things line up.', // hedge
+    'The table limit is 5 tai, but this hand is small.', // limit context, not the hand value
+  ]) {
+    mock.restoreAll();
+    mockReply({ answer: [{ refs: ['f6'], text }] });
+    const result = await runCoachAnswer({ position: POSITION, question: 'how much is my hand worth' });
+    assert.equal(result.modelAssisted, true, text);
+  }
+});
+
+test('a number not tied to any cited fact is left alone', async () => {
+  // Cites only the wall fact; the "3 tai" claim has no cited handValue fact to check against.
+  mockReply({ answer: [{ refs: ['f2'], text: 'Plenty of wall left; a hand like this might be 3 tai.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'how is it going' });
+  assert.equal(result.modelAssisted, true);
+});
+
 // --- bad output -> deterministic fallback -----------------------------------------------------
 
 test('a non-JSON reply falls back to the deterministic answer', async () => {
