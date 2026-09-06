@@ -153,16 +153,26 @@ test('a line stating the right number is fine', async () => {
   assert.equal(result.modelAssisted, true);
 });
 
-test('a hedged or limit-context number is not policed', async () => {
-  for (const text of [
-    'It could be worth about 8 tai if things line up.', // hedge
-    'The table limit is 5 tai, but this hand is small.', // limit context, not the hand value
-  ]) {
+test('a hedge only excuses the number in its own clause', async () => {
+  // modelAssisted expected for each: true = the number is genuinely hedged / limit-scoped.
+  const cases = [
+    ['It could be worth about 8 tai if things line up.', true], // "8 tai" is hedged
+    ['The table limit is 5 tai, but this hand is small.', true], // only number is the limit
+    ['You probably want to discard b9; this hand is worth 8 tai.', false], // hedge is a different clause
+    ['The table limit is 5 tai, but your hand is worth 8 tai.', false], // "8 tai" is a separate claim
+  ];
+  for (const [text, ok] of cases) {
     mock.restoreAll();
     mockReply({ answer: [{ refs: ['f6'], text }] });
     const result = await runCoachAnswer({ position: POSITION, question: 'how much is my hand worth' });
-    assert.equal(result.modelAssisted, true, text);
+    assert.equal(result.modelAssisted, ok, text);
   }
+});
+
+test('a hedge in a later clause does not excuse a wrong wall count', async () => {
+  mockReply({ answer: [{ refs: ['f2'], text: 'There are 20 tiles left, so you might still have time.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'how is it going' });
+  assert.equal(result.modelAssisted, false); // POSITION.wallCount is 70; "might" modifies "time", not "20"
 });
 
 test('a number not tied to any cited fact is left alone', async () => {

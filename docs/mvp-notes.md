@@ -217,8 +217,9 @@ These are deliberate MVP boundaries, not defects:
        (narrowed) prompt, **and** no line names a scoring pattern this table does not play
        (checked against the rules fact's key list — `half flush` / `full flush` / `all pungs` /
        `all chows`), **and** no line states a tai / point / wall-count number that a fact it
-       cited contradicts (bailing on any hedge word, any limit/cap context, or an ambiguous
-       count, to stay clear of false positives).
+       cited contradicts (each candidate number is skipped if *its own clause* hedges it or ties
+       it to the table limit, or if the slot has more than one surviving number — a hedge
+       elsewhere in the sentence does not excuse a separate definite claim).
      - the answer is flagged so the UI badges it "AI"; any failure drops to the local guided
        fallback.
 

@@ -16,8 +16,8 @@ just phrase graded facts. It is still fenced:
 - the reply must be `{ answer: [{ refs, text }] }`; `runCoachAnswer()` drops it unless every
   cited id was in the (narrowed) prompt, no line names a scoring pattern the table does not play
   (checked against the rules fact's `keys`, not the prose), and no line states a tai / point /
-  wall-count number a cited fact contradicts (skipping hedges and limit-context to avoid false
-  positives).
+  wall-count number a cited fact contradicts (a number is only checked if nothing in its own
+  clause hedges it or ties it to the table limit).
 - any failure → a fixed deterministic answer (the frontend's own local coach is the real
   offline floor).
 

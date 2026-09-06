@@ -35,9 +35,10 @@ function namesUnsupportedPattern(text, activeKeys) {
 }
 
 // Numbers a line can state that a cited fact pins down exactly. Deliberately narrow: three slots
-// with stereotyped phrasings, and the check bails on any hedge word or any limit/cap context (a
-// line about the table limit legitimately carries a tai number that isn't the hand's value), and
-// on more than one candidate number for a slot.
+// with stereotyped phrasings, and each candidate number is only checked if nothing in its *own
+// clause* hedges it or ties it to the table limit — a hedge or "limit" elsewhere in the sentence
+// does not excuse a separate definite claim. More than one surviving number for a slot is treated
+// as ambiguous and skipped.
 const NUMERIC_SLOTS = [
   { field: 'tai', factType: 'handValue', res: [/(\d+)\s*tai\b/g] },
   { field: 'points', factType: 'handValue', res: [/\bpays?\s+(\d+)\b/g, /(\d+)\s*points?\b/g] },
@@ -47,16 +48,29 @@ const HEDGE =
   /\b(about|around|roughly|approximately|maybe|might|probably|possibly|likely|nearly|almost|up to|at least|or so|several|a few|some|between|~)\b/;
 const LIMIT_CONTEXT = /\b(limit|cap|capped|max|maximum|most it can|ceiling)\b/;
 
+/** The clause a matched number sits in: from the previous clause break to the next one. */
+function clauseAround(text, at, len) {
+  const before = text.slice(0, at);
+  const cut = before.search(/[,;.\n][^,;.\n]*$/);
+  const after = text.slice(at + len).split(/[,;.\n]/, 1)[0];
+  return `${cut === -1 ? before : before.slice(cut + 1)} ${after}`;
+}
+
 /** True if a line states a number for a slot that its cited fact contradicts. */
 function misstatesNumber(text, citedFacts) {
   const t = String(text).toLowerCase();
-  if (HEDGE.test(t)) return false;
   for (const slot of NUMERIC_SLOTS) {
-    if ((slot.field === 'tai' || slot.field === 'points') && LIMIT_CONTEXT.test(t)) continue;
     const fact = citedFacts.find((f) => f.type === slot.factType);
     if (!fact) continue;
+    const limitSlot = slot.field === 'tai' || slot.field === 'points';
     const stated = new Set();
-    for (const re of slot.res) for (const m of t.matchAll(re)) stated.add(Number(m[1]));
+    for (const re of slot.res) {
+      for (const m of t.matchAll(re)) {
+        const clause = clauseAround(t, m.index, m[0].length);
+        if (HEDGE.test(clause) || (limitSlot && LIMIT_CONTEXT.test(clause))) continue;
+        stated.add(Number(m[1]));
+      }
+    }
     if (stated.size === 1 && !stated.has(fact[slot.field])) return true; // one clear number, wrong
   }
   return false;
