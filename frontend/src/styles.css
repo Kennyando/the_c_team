@@ -16,6 +16,7 @@
   --panel-edge: #c9bfa6;
   --tile-face: #fffdf7;
   --tile-edge: #a89877;
+  --tile-lift: 0 10px 12px rgba(0, 0, 0, 0.35);
   --accent: #b3271e;
   --accent-text: #ffffff;
   --highlight: #ffd23f;
@@ -39,6 +40,7 @@
   --panel-edge: #000000;
   --tile-face: #ffffff;
   --tile-edge: #000000;
+  --tile-lift: 0 0 0 transparent;
   --accent: #000000;
   --accent-text: #ffff00;
   --highlight: #ffff00;
@@ -170,25 +172,34 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 [data-theme='contrast'] .felt { background: #000; }
 [data-theme='contrast'] .scene { background: #000; }
 
-/* ---------- the wall ---------- */
+/* ---------- the concealed hands ---------- */
 
-.wall { display: contents; }
-.wall-edge { position: absolute; display: flex; align-items: center; justify-content: center; }
-.wall-edge-far { top: 4%; left: 50%; transform: translateX(-50%); }
-.wall-edge-near { bottom: 4%; left: 50%; transform: translateX(-50%); }
-.wall-edge-left { left: 4%; top: 50%; transform: translateY(-50%) rotate(90deg); }
-.wall-edge-right { right: 4%; top: 50%; transform: translateY(-50%) rotate(90deg); }
-.stack {
-  flex: none;
-  width: calc(var(--tile-w) * 0.30);
-  height: calc(var(--tile-h) * 0.26);
-  border-radius: 3px;
+.rack { display: contents; }
+/* One back per tile the seat at that edge is holding (see handRows in tableLayout.js), in a
+   single row, so the length of a row reads as that player's hand size. */
+.rack-edge {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  overflow: hidden;
+}
+.rack-edge-far { top: 1%; left: 50%; max-width: 92%; transform: translateX(-50%); }
+.rack-edge-near { bottom: 4%; left: 50%; max-width: 92%; transform: translateX(-50%); }
+/* A fixed width with the backs centred inside it, so a row stays put on its edge as the hand
+   shrinks rather than sliding along as it gets shorter. */
+.rack-edge-left, .rack-edge-right { top: 50%; width: 360px; }
+.rack-edge-left { left: 4%; transform: translateY(-50%) rotate(90deg); }
+.rack-edge-right { right: 4%; transform: translateY(-50%) rotate(90deg); }
+.rack-tile {
+  width: calc(var(--tile-w) * 0.34);
+  height: calc(var(--tile-h) * 0.30);
+  border-radius: 2px;
   background: linear-gradient(#f2ead6, #cdbf9e);
   border: 1px solid #8d7c58;
-  /* Lifted off the felt so the ring reads as a stack two tiles high. */
-  box-shadow: 0 -3px 0 #e3d8bd, 0 -3px 0 1px #8d7c58;
 }
-[data-theme='contrast'] .stack { background: #fff; border-color: #000; box-shadow: 0 -3px 0 #fff, 0 -3px 0 1px #000; }
+[data-theme='contrast'] .rack-tile { background: #fff; border-color: #000; }
 
 /* ---------- opponents ---------- */
 
@@ -197,16 +208,21 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  /* Stand the rack up out of the table tilt, so it faces you like a real one. */
+  /* A wide gap between the name plate and the exposed melds: the seat's counter-rotation, seen
+     through the scene's perspective, projects the plate (top of this column) down onto the melds,
+     so a small gap here reads as the plate sitting on the tiles. */
+  gap: calc(var(--tile-h) * 0.3);
+  /* Stand the plate up out of the table tilt, so it faces you square-on. */
   transform: translateZ(30px) rotateX(calc(var(--tilt) * -1));
   transform-origin: 50% 100%;
 }
-.seat-far { bottom: 74%; left: 26%; width: 48%; }
-/* Pulled in from the wall's own edge inset (4%) so the standing rack never crosses the wall lying
-   flat beside it — on a real table your hand sits inside your wall, not on top of it. */
-.seat-left { bottom: 44%; left: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
-.seat-right { bottom: 44%; right: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(-16deg); }
+/* The far edge has no room to lift the plate — the wall backs sit just above it — so this seat
+   uses a smaller gap and clears its melds off the discards by moving the pile instead (below). */
+.seat-far { bottom: 60%; left: 26%; width: 48%; gap: calc(var(--tile-h) * 0.16); }
+/* Pulled in from the row's own edge inset (4%) so the standing plate never crosses the backs lying
+   flat beside it — on a real table a player sits behind their own tiles, not on top of them. */
+.seat-left { bottom: 40%; left: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
+.seat-right { bottom: 40%; right: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(-16deg); }
 
 /* The name plate stays square to the reader — skewed text is what this app exists to avoid. */
 .seat-plate {
@@ -228,23 +244,10 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .seat.active .seat-turn { color: var(--ink); }
 .seat-meta { font-size: calc(13px * var(--tile-scale)); opacity: 0.9; }
 
-/* A face-down tile. `flex: none` matters: without it a rack of 13 collapses to nothing. */
-.tile-back {
-  flex: none;
-  width: calc(var(--tile-w) * 0.30);
-  height: calc(var(--tile-h) * 0.36);
-  border-radius: 4px;
-  background: repeating-linear-gradient(45deg, #2f7d5b, #2f7d5b 4px, #266649 4px, #266649 8px);
-  border: 2px solid #1d4d38;
-  box-shadow: 0 2px 0 #17553b;
-}
-[data-theme='contrast'] .tile-back { background: #333; border-color: #fff; box-shadow: none; }
-
-.rack { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 100%; }
 .seat-open { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 100%; }
 .seat-meld { display: flex; gap: 2px; padding: 3px; border-radius: 7px; background: rgba(0, 0, 0, 0.35); }
-/* Exposed sets sit smaller than the rack: a player with three or four melds would otherwise grow
-   tall enough to push their own name plate off the top of the table. */
+/* Exposed sets sit smaller than a full tile: a player with three or four melds would otherwise
+   grow tall enough to push their own name plate off the top of the table. */
 .seat-meld .tile.small {
   width: calc(var(--tile-w) * 0.46);
   height: calc(var(--tile-h) * 0.46);
@@ -253,8 +256,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 
 /* ---------- discards, one tidy grid per seat ----------
 
-   Each player's discards pile up as their own compact grid, just inside their own wall — the way
-   an actual mahjong game lays them out — rather than everyone's tiles landing in one shared heap. */
+   Each player's discards pile up as their own compact grid, just inside their own row of backs —
+   the way an actual mahjong game lays them out — rather than landing in one shared heap. */
 
 .discard-piles { display: contents; }
 .discards-empty {
@@ -274,20 +277,25 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   position: absolute;
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  /* Generous row-gap: once each tile stands fully upright a back row hides behind the row in
+     front unless the rows are spaced apart, so the pile is legible as stacked standing tiles. */
+  gap: 12px 3px;
   justify-content: center;
   /* A bounded box, not just a bounded width: a seat with an unusually long run of discards must
      stop growing rather than reach into another seat's or the table's other regions. */
-  max-height: calc(var(--tile-h) * 0.62 * 4 + 6px);
+  max-height: calc(var(--tile-h) * 0.62 * 4 + 42px);
   overflow: hidden;
   /* Rows pack toward this edge, so once the pile is full it's always the oldest discards that get
      clipped off — the newest, the one an actual decision depends on, never disappears. */
   align-content: flex-end;
 }
 .discard-pile-far {
-  top: 24%;
+  top: 42%;
   left: 50%;
   width: min(220px, 30%);
+  /* Sits closer to the centre than the other piles (moved off the far player's melds), so it is
+     capped shorter to keep a long run of discards from reaching the middle of the table. */
+  max-height: calc(var(--tile-h) * 0.62 * 3 + 30px);
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-near {
@@ -309,21 +317,53 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   transform: translateY(-50%) translateZ(12px);
 }
 
+/* Every discarded tile — all four players' piles — stands fully upright out of the table tilt,
+   pivoting on the edge that rests on the felt, so each pile reads as a row of real tiles someone
+   tossed down rather than a flat grid. The lift shadow then shows as the tile's contact with the
+   cloth. `.discard-latest` below is defined after this and
+   wins the shared `transform`, so the newest tile is lifted forward of the rest. When --tilt is
+   0 (flat view / reduced motion) this is rotateX(0) and the tiles lie flat with no special-casing. */
+.discard-tile {
+  transform: rotateX(calc(var(--tilt) * -1));
+  transform-origin: 50% 100%;
+}
+
 /* The tile just thrown stands up at full size, square to you — it is the one thing on the table a
    decision actually depends on, so it must not be foreshortened with the rest of its pile. */
 .discard-latest {
   transform: translateZ(18px) rotateX(calc(var(--tilt) * -1)) translateY(-8%);
   transform-origin: 50% 100%;
   z-index: 2;
+  /* The class hops to each new latest tile, so this fires once per discard. */
+  animation: discard-in 220ms ease-out;
 }
+
+/* A tile lands in the pile: it rises the last bit into place and fades in — a toss, no flight. */
+@keyframes discard-in {
+  from {
+    opacity: 0;
+    transform: translateZ(18px) rotateX(calc(var(--tilt) * -1)) translateY(60%);
+  }
+}
+
+/* A tile drawn into your hand pops in with a small overshoot. Scoped to your hand so the
+   latest-discard tile (which also carries .just-drawn) is left to discard-in alone. */
+@keyframes draw-pop {
+  from { opacity: 0; transform: scale(0.72); }
+  60% { transform: scale(1.06); }
+  to { transform: scale(1); }
+}
+.hand-tiles .tile.just-drawn { animation: draw-pop 200ms ease-out; }
 
 /* ---------- tiles ---------- */
 
+/* The ivory face, front-on. */
 .tile {
+  position: relative;
   width: var(--tile-w);
   height: var(--tile-h);
   border-radius: 9px;
-  border: 3px solid var(--tile-edge);
+  border: 2px solid var(--tile-edge);
   background: var(--tile-face);
   color: var(--ink);
   display: flex;
@@ -333,7 +373,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   gap: 2px;
   padding: 0;
   min-height: 0;
-  box-shadow: 0 3px 0 var(--tile-edge);
+  box-shadow: var(--tile-lift);
   flex: none;
 }
 /* Traditional faces are SVG, so they scale with the tile — and therefore with the size slider —
@@ -353,12 +393,39 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 [data-theme='contrast'] .tile .main,
 [data-theme='contrast'] .tile .sub { color: #000; }
 
-.tile.small { --tile-scale-inner: 0.62; width: calc(var(--tile-w) * 0.62); height: calc(var(--tile-h) * 0.62); box-shadow: none; }
+.tile.small { --tile-scale-inner: 0.62; width: calc(var(--tile-w) * 0.62); height: calc(var(--tile-h) * 0.62); }
 .tile.small .main { font-size: calc(var(--tile-h) * 0.26); }
 .tile.small .sub { font-size: calc(var(--tile-h) * 0.14); }
 
+/* Tile name on hover / keyboard focus: a small chip above the tile. */
+.tile::after {
+  content: attr(data-name);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--tile-face);
+  border: 1px solid var(--tile-edge);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 20;
+}
+.tile:hover::after,
+.tile:focus-visible::after { opacity: 1; }
+
 .tile.selectable:hover { transform: translateY(-6px); }
-.tile.just-drawn { border-color: var(--highlight); box-shadow: 0 0 0 4px var(--highlight); }
+/* The freshly drawn / latest-discard tile gets a highlight ring — a box-shadow, so it leaves the
+   border and layout untouched. */
+.tile.just-drawn { box-shadow: 0 0 0 3px var(--highlight), var(--tile-lift); }
 .tile.dimmed { opacity: 0.55; }
 
 /* ---------- your hand ---------- */
@@ -685,9 +752,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   .scene { flex: none; height: 50vh; min-height: 340px; padding: 10px 10px 0; }
   .hand-area { max-height: none; overflow: visible; }
   .table { --tilt: 30deg; --table-scale: 1.02; }
-  .seat-far { bottom: 68%; }
-  .seat-left, .seat-right { bottom: 42%; }
-  .rack .tile-back { width: calc(var(--tile-w) * 0.24); height: calc(var(--tile-h) * 0.28); }
+  .seat-far { bottom: 60%; }
+  .seat-left, .seat-right { bottom: 38%; }
   /* A short table leaves each pile very little room, so let them run wider before wrapping. */
   .discard-pile-far, .discard-pile-near { width: min(260px, 40%); }
   .discard-pile-left, .discard-pile-right { width: min(140px, 20%); }
@@ -701,4 +767,5 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 @media (prefers-reduced-motion: reduce) {
   .table { --tilt: 0deg; --table-scale: 1; }
   .scene { perspective: none; }
+  .discard-latest, .hand-tiles .tile.just-drawn { animation: none; }
 }

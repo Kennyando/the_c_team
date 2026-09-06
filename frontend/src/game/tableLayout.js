@@ -4,7 +4,12 @@
 // Add seat/river/hand geometry here only when the corresponding component is
 // wired up in the same change and covered by tests.
 
-export const EDGES = ['far', 'right', 'near', 'left'];
+/**
+ * Which seat sits at which table edge, seen from your chair: you are always the near edge, and
+ * the opponent you face is the far one. The same mapping places a seat's discards just inside
+ * its own edge, so the row of backs and the pile below it belong to the same player.
+ */
+export const EDGE_SEATS = { far: 2, right: 3, near: 0, left: 1 };
 
 /**
  * Split the remaining wall into two-tile-high stacks across the four edges.

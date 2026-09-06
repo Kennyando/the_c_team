@@ -1,4 +1,4 @@
-import Tile, { TileBack } from './Tile.jsx';
+import Tile from './Tile.jsx';
 import { tileName } from '../game/tiles.js';
 import { seatWindOf } from '../game/scoring.js';
 
@@ -6,12 +6,11 @@ const WIND_LABEL = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
 const WIND_DISPLAY_NUMBER = { we: 1, ws: 2, ww: 3, wn: 4 };
 
 /**
- * An opponent at their side of the table: a standing rack of face-down tiles, with their exposed
- * sets and flowers laid in front of it.
+ * An opponent at their side of the table: their name plate, with any exposed sets and flowers
+ * laid in front of it.
  *
- * The rack is counter-rotated out of the table's tilt so it stands upright, and the name plate is
- * kept square to the reader — a label lying on the receding surface would be exactly the kind of
- * skewed text this app exists to avoid.
+ * The name plate is kept square to the reader — a label lying on the receding surface would be
+ * exactly the kind of skewed text this app exists to avoid.
  */
 export default function Seat({ player, dealer, active, className }) {
   const windId = seatWindOf(player.seat, dealer);
