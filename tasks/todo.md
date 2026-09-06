@@ -2467,9 +2467,10 @@ future LangGraph tool — English becomes a prompt-time rendering only. Noted in
 - [x] `misstatesNumber(text, citedFacts)` in `coachAnswer.js` — three slots (`tai` / `points`
       vs the cited `handValue` fact, tiles-left vs the cited `wall` fact) with stereotyped
       phrasings. Drops the reply when a line states one clear number for a slot that the fact it
-      cites contradicts. Bails on any hedge word (`about`, `might`, `between`, …), any
-      limit/cap context (a line about the table limit legitimately carries a non-hand tai
-      number), and >1 candidate number for a slot — false positives are worse than a miss here.
+      cites contradicts. Each candidate number is skipped only if *its own clause* (`clauseAround`,
+      split on `,;.`) hedges it or ties it to the table limit — PR #30 review: a hedge elsewhere
+      in the sentence must not excuse a separate definite claim. >1 surviving number → ambiguous,
+      skip.
 - [x] Tests (+5): wrong tai → drop, wrong wall count → drop, right number → fine, hedged /
       limit-context number → fine, number with no matching cited fact → fine.
 - [x] agents 50/50, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
@@ -2478,3 +2479,132 @@ Grounding now covers: ref existence, unsupported scoring patterns, and contradic
 numbers. A line that *reasons about* the facts (not stating a rule / copying a number) is still
 taken on trust — closing that would need a judge pass or far richer facts, not warranted for a
 safely-degrading last-resort answer (`docs/mvp-notes.md` #7).
+
+---
+
+# Follow-up: offline model comparison harness for the coach agent
+
+The coach agent's model is one env var (`AGENT_MODEL_ID`, default `us.amazon.nova-lite-v1:0`,
+`agents/src/model.js:18`). The README says that default was picked after an ad-hoc comparison
+run that was never committed. Before deciding whether to move to Nova 2 Lite (or Nova Pro),
+build a repeatable harness that runs the current baseline, Nova Pro, and Nova 2 Lite through
+the **real** `runCoachAnswer()` grounding pipeline on a fixed question set and reports pass
+rates, failure reasons, latency, and token use. Decision-support only — no model switch here.
+
+**Scope decision: no change to `agents/src/`.** One child process per model, with
+`AGENT_MODEL_ID` set in its env before `model.js` loads, sidesteps the module-load-time
+`MODEL_ID` const. The harness lives entirely in a new `agents/bench/`.
+
+**Scope decision: opt-in, never in `npm test`.** The harness hits real Bedrock (~45 calls,
+cents). `npm test` stays fully offline and free.
+
+## Todo
+
+- [x] 1. `agents/bench/cases.mjs` — 15 `{ name, position, question, note }` fixtures. Two
+     positions lifted from `agents/test/coachAnswer.test.js` (the ready hand; the b5 claim
+     window), covering the six `QUICK_QUESTIONS`, four natural phrasings, and five adversarial
+     cases (riichi / wrong-tai-number / full-flush / opponent-hand / invented-rule).
+- [x] 2. `agents/bench/coachModels.mjs` — single-model child. Reads `AGENT_MODEL_ID`. Wraps
+     `BedrockRuntimeClient.prototype.send` as a pass-through spy recording raw reply, token
+     usage, `stopReason`, latency, and content-block shape; runs the real
+     `runCoachAnswer({ position, question })`; derives `jsonParsed` (`parseJsonObject`),
+     `shapeOk` (`isCoachAnswerShape`), `modelAssisted`, `groundingRejected`
+     (`shapeOk && !modelAssisted`). One JSON line per case to stdout; full raw replies to
+     `agents/bench/out/<modelId>.json`.
+- [x] 3. `agents/bench/run.mjs` — parent. Candidates `us.amazon.nova-lite-v1:0` (baseline),
+     `us.amazon.nova-pro-v1:0`, `us.amazon.nova-2-lite-v1:0` (override with `MODELS="a,b,c"`;
+     verify ids + region in the Bedrock console first). Spawns the child per model with
+     `AGENT_MODEL_ID` set, prints the markdown table: model | n | JSON-valid % |
+     modelAssisted % | grounding-rej | non-JSON | bedrock-err | truncated | avg ms | avg out-tok.
+- [x] 4. `agents/package.json` — added `"bench:coach": "node bench/run.mjs"`; `test` untouched.
+- [x] 5. Root `.gitignore` — added `agents/bench/out/`.
+- [x] 6. Verified — see below. Real multi-model run still needs AWS creds (not run here).
+
+## Review
+
+### What was added
+
+A self-contained `agents/bench/` harness, run with `npm run bench:coach`, that puts the coach
+agent's fixed question set through the **real** `runCoachAnswer()` pipeline against each
+candidate model and prints a comparison table. No change to `agents/src/` — one child process
+per model, `AGENT_MODEL_ID` set in its env before `model.js` loads, sidesteps the
+module-load-time `MODEL_ID` const. Nothing runs in `npm test`; the harness is opt-in and hits
+real Bedrock.
+
+- **`bench/cases.mjs`** — 15 fixtures over two positions from the unit-test file. The
+  adversarial five each target one guardrail: an honest "facts don't cover this" (riichi), a
+  pinned-number contradiction (8 tai when the real value is 0), an unsupported scoring pattern
+  (full flush on a half-flush table), an unknowable (opponent's hand), and an invented rule.
+- **`bench/coachModels.mjs`** — the child. A pass-through spy on `send` records the raw reply,
+  `usage`, `stopReason` (so Nova 2 Lite reasoning output truncating under `maxTokens: 300`
+  shows up as `truncated`), latency, and which content blocks came back (diagnostic for a
+  reasoning model putting `reasoningContent` before `text`). The production verdict comes from
+  the real `runCoachAnswer()`, not a re-implementation.
+- **`bench/run.mjs`** — the orchestrator and table. `grounding-rej` = shape-valid but the
+  pipeline still dropped it (bad ref / unsupported pattern / misstated number); the per-model
+  `out/*.json` dump is where a human confirms each rejection was real, not a false positive.
+
+### Verification
+
+- `cd agents && npm test` — 50/50 pass, offline, no AWS calls. Unchanged by this work.
+- `cd agents && AWS_ACCESS_KEY_ID=… BEDROCK_REGION=us-east-1 MODELS="us.amazon.nova-lite-v1:0"
+  node bench/run.mjs` with throwaway credentials — harness wires up end to end: 15 cases run,
+  each Bedrock failure is caught and recorded per-case (`bedrockError:
+  "UnrecognizedClientException"`), the deterministic fallback is exercised, the table prints
+  cleanly, and `bench/out/<model>.json` is written with the per-case structure.
+- `git check-ignore agents/bench/out/…json` — confirmed the dump directory is git-ignored.
+- A real three-model run needs valid AWS credentials and all three inference profiles enabled
+  in the region — not available in this environment, so left for the user to run.
+
+### Note — unrelated in-flight change in the working tree
+
+`agents/src/coach/coachAnswer.js` and `agents/test/coachAnswer.test.js` carry uncommitted
+edits that are **not** part of this work (a clause-scoped rewrite of `misstatesNumber`'s hedge
+/ limit-context handling). They were already in the tree; this harness does not touch that
+file and the full suite passes with them in place.
+
+---
+
+# Act on the first bench run: expand cases + close two guardrail gaps
+
+The first `bench:coach` run (nova-lite / nova-pro / nova-2-lite, n=15) showed nova-pro's JSON
+compliance collapsing (40%), and nova-lite vs nova-2-lite a wash on safety — each let exactly
+one hallucination past the guardrails (nova-lite invented an opponent's hand; nova-2-lite
+entertained riichi). It also surfaced two guardrail bugs. This change acts on both, and grows
+the fixture set so a re-run is more discriminating. **No model switch** — decision support only.
+
+- [x] `agents/bench/cases.mjs` — 15 → 40 fixtures. Six positions now (added a far-from-ready
+      hand, a not-your-turn hand, a pong window, an endgame near-empty wall). 16 adversarial /
+      out-of-scope cases (foreign rules: riichi / dora / furiten / yaku; unknowables: opponent
+      hand / next draw / dead wall / opp discard / game score; invented rules; a bad-faith
+      "peek at their tiles"), plus more rule and vague-phrasing cases across the positions.
+- [x] `agents/src/coach/coachAnswer.js` — gap 1: `namesUnsupportedPattern` was line-wide, so it
+      *rejected a correct refusal* ("no, don't chase a full flush"). Now clause-scoped via
+      `clauseAround` and skips a clause that `isDismissed` (no / not / avoid / "isn't a rule" …).
+- [x] `agents/src/coach/coachAnswer.js` — gap 2: nothing caught the "reasons past the facts"
+      hallucination. Added `inventsForeignRule` (riichi / dora / furiten / ippatsu / … deny-list)
+      and `claimsOpponentHand` (a positive claim about another seat's concealed tiles). Both
+      clause-scoped and dismissal-aware, so an honest "that isn't a thing here" / "you can't
+      know what they hold" is still kept.
+- [x] `agents/test/coachAnswer.test.js` — +5: dismissed-pattern kept; foreign rule asserted →
+      drop; foreign rule dismissed → kept; opponent-hand claim → drop; opponent-hand "unknowable"
+      → kept.
+- [x] Docs: `agents/README.md`, `docs/mvp-notes.md` #7 — guardrail list now names all four
+      checks and the clause-scoping / dismissal rule.
+- [x] agents 56/56, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean. A real
+      multi-model re-run against the 40 cases still needs AWS creds — not run here.
+
+### PR #31 review — `modelAssisted` is not a quality metric (joshu4-j-j0hn)
+
+Renamed the bench's `modelAssisted` → `pipelineAccepted` (`coachModels.mjs`) / `accept` in the
+table (`run.mjs`); it only ever meant "the production pipeline let the reply through", and a
+hallucination the guardrails miss inflates it.
+
+- [x] `cases.mjs` — each case now has `expect: 'answer' | 'decline'` (27 / 13).
+- [x] `run.mjs` — reports **`accept (answer-cases)`** and **`leaked (decline-cases)`** separately.
+      `leaked` = accepted a reply on a case the facts cannot support = a guardrail miss (goal: 0).
+      Footer spells out that `accept` is not quality and that recklessness inflates it.
+- [x] `coachModels.mjs` — each dumped case carries `expect` + a `humanVerdict: null` slot to fill
+      in by hand (`correct` / `grounded-refusal` / `unsupported` / `wrong` / `leak`) when using a
+      run for model selection — that, not `accept`, is the comparison.
+- [x] Docs: `agents/README.md`.

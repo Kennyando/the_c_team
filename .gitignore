@@ -229,6 +229,9 @@ build/
 *.log
 cdk.out/
 
+# coach-agent model comparison output (bench/run.mjs)
+agents/bench/out/
+
 # --- OS junk ---
 .DS_Store
 Thumbs.db

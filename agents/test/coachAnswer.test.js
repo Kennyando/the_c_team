@@ -132,6 +132,43 @@ test('a line naming a pattern the table does play is fine', async () => {
   assert.equal(result.modelAssisted, true);
 });
 
+test('a line telling the player NOT to chase an unsupported pattern is kept', async () => {
+  // The pattern name appears, but the clause dismisses it — that is a good answer, not invention.
+  mockReply({ answer: [{ refs: ['f3'], text: "No, don't push for a full flush; just take the win." }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, true);
+});
+
+// --- grounding: no out-of-scope invention ---------------------------------------------------
+
+test('a line treating a non-Singapore rule as applicable drops the reply', async () => {
+  mockReply({ answer: [{ refs: ['f3'], text: 'Declaring riichi now could be a good move.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'should I declare riichi?' });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('a line saying a foreign rule does NOT apply is kept', async () => {
+  mockReply({ answer: [{ refs: ['f0'], text: "Riichi isn't a rule in Singapore Mahjong, so no." }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'should I declare riichi?' });
+  assert.equal(result.modelAssisted, true);
+});
+
+test('a line claiming to know an opponent hand drops the reply', async () => {
+  mockReply({
+    answer: [{ refs: ['f4'], text: 'Your neighbour is probably holding a pair of 6 Characters.' }],
+  });
+  const result = await runCoachAnswer({ position: POSITION, question: 'what does the player on my left have?' });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('a line saying an opponent hand is unknowable is kept', async () => {
+  mockReply({
+    answer: [{ refs: ['f0'], text: 'You cannot know what the other players are holding.' }],
+  });
+  const result = await runCoachAnswer({ position: POSITION, question: 'what does the player on my left have?' });
+  assert.equal(result.modelAssisted, true);
+});
+
 // --- grounding: no number that contradicts a cited fact --------------------------------------
 
 test('a line stating a tai count its cited handValue fact contradicts drops the reply', async () => {

@@ -214,12 +214,15 @@ These are deliberate MVP boundaries, not defects:
        clearly matches, all are kept.
      - the model must return `{ answer: [{ refs, text }] }` and cite, per line, the fact ids it
        rests on; `runCoachAnswer()` drops the whole reply unless every cited id was in the
-       (narrowed) prompt, **and** no line names a scoring pattern this table does not play
-       (checked against the rules fact's key list — `half flush` / `full flush` / `all pungs` /
-       `all chows`), **and** no line states a tai / point / wall-count number that a fact it
-       cited contradicts (each candidate number is skipped if *its own clause* hedges it or ties
-       it to the table limit, or if the slot has more than one surviving number — a hedge
-       elsewhere in the sentence does not excuse a separate definite claim).
+       (narrowed) prompt, and no line: asserts a scoring pattern this table does not play
+       (`half flush` / `full flush` / `all pungs` / `all chows`, checked against the rules fact's
+       key list); states a tai / point / wall-count number that a fact it cited contradicts;
+       treats a non–Singapore-Mahjong concept (riichi, dora, furiten, …) as applicable; or claims
+       to know a concealed hand it was never given (an opponent's tiles). Each check is scoped to
+       the *clause* the phrase sits in, and skips a clause that hedges or dismisses the thing —
+       "no, riichi isn't a rule here" and "don't chase a full flush" are good answers, not
+       inventions, and a hedge or "limit" elsewhere in the sentence doesn't excuse a separate
+       definite claim.
      - the answer is flagged so the UI badges it "AI"; any failure drops to the local guided
        fallback.
 
