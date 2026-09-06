@@ -95,6 +95,24 @@ test('postHandReview uses a well-formed model review when the endpoint returns o
   }
 });
 
+test('postHandReview strips the per-decision board snapshot from the request body', async () => {
+  const withSnapshot = { ...badDiscard, snapshot: { players: [{ seat: 0, hand: ['we'] }], discards: [], wallCount: 40 } };
+  let sentBody = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => {
+    sentBody = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ review: { headline: 'h', goodMoves: [], improvements: [], oneThingToTry: 'o' } }) };
+  };
+  try {
+    await postHandReview([withSnapshot], { limit: 5 }, { reviewUrl: 'https://example.invalid/review' });
+    assert.equal(sentBody.decisions[0].snapshot, undefined, 'snapshot is frontend-only, not sent');
+    assert.equal(sentBody.decisions[0].chosen, 'we', 'the graded fields are still sent');
+    assert.deepEqual(sentBody.rules, { limit: 5 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('postHandReview falls back to local when the endpoint returns a malformed body', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ review: { headline: 'x' } }) });

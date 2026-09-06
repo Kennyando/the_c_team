@@ -120,6 +120,31 @@ function drawReplacement(state) {
 }
 
 /**
+ * The visible table at the moment a decision was made, so the post-hand review can put the board
+ * back exactly as the player saw it rather than describe it in prose. Only what `Table`/`Seat`
+ * read: your own tiles, every seat's exposed melds/bonus, the discard river, the wall count and
+ * the seat winds. Opponents' concealed hands are a count only — the rack is always drawn face
+ * down. All plain values, so it survives the `structuredClone(state)` the app does each step.
+ */
+function boardSnapshot(state) {
+  return {
+    players: state.players.map((p) => ({
+      seat: p.seat,
+      name: p.name,
+      points: p.points,
+      hand: p.seat === 0 ? [...p.hand] : p.hand.length,
+      melds: p.melds.map((m) => ({ ...m, tiles: [...m.tiles] })),
+      bonus: [...p.bonus],
+    })),
+    discards: state.discards.map((d) => ({ ...d })),
+    wallCount: state.wall.length,
+    turn: state.turn,
+    dealer: state.dealer,
+    prevailingWind: state.prevailingWind,
+  };
+}
+
+/**
  * A structured record of the human's discard, for a future post-game review — separate from the
  * narrative `log`, which is display text, not data to compare against. Reuses `advisor.js`'s own
  * `bestDiscard`, the exact function the live coach uses to judge a position, so this is by
@@ -135,6 +160,10 @@ function recordDiscardDecision(state, player, chosen) {
     // Which grader produced `recommended`/`optimal` below — so a review of stored history stays
     // interpretable after advisor.js changes. See ADVISOR_VERSION in advisor.js.
     advisorVersion: ADVISOR_VERSION,
+    // Taken before the tile leaves the hand and before it hits `state.discards`, so
+    // `snapshot.players[0].hand` is the full 14-tile hand and `snapshot.discards` is the river as
+    // it looked when you chose.
+    snapshot: boardSnapshot(state),
     hand: [...player.hand],
     melds: player.melds.map((m) => ({ ...m })),
     chosen,
@@ -210,6 +239,9 @@ function recordClaimDecision(state, humanChoice) {
   return {
     type: 'claim',
     advisorVersion: ADVISOR_VERSION, // see recordDiscardDecision / ADVISOR_VERSION in advisor.js
+    // The offered tile is already the last entry in `snapshot.discards` and `state.pending` is
+    // set; `snapshot.players[0].hand` is the human's hand, which the fields below don't carry.
+    snapshot: boardSnapshot(state),
     pendingTile: claimedTile,
     discardedBy: state.pending.by,
     options,

@@ -32,13 +32,18 @@ export async function postHandReview(decisions, rules, { reviewUrl = REVIEW_URL 
   const local = () => assembleReview(decisions, rules);
   if (!reviewUrl) return local();
 
+  // `decision.snapshot` (the board at that moment, added for the step-through review UI) is
+  // frontend-only — the agent grades from the graded fields, never the snapshot — so strip it
+  // rather than send ~10x the body.
+  const forWire = decisions.map(({ snapshot, ...d }) => d);
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REVIEW_TIMEOUT_MS);
   try {
     const res = await fetch(reviewUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisions, rules }),
+      body: JSON.stringify({ decisions: forWire, rules }),
       signal: controller.signal,
     });
     if (!res.ok) return local();
