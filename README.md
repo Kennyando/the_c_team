@@ -100,10 +100,10 @@ The game engine in `frontend/src/game/` has no React imports, so `agents/` and
 
 ## Where dependencies are declared
 
-There is no `requirements.txt` — this repo has no Python. The equivalent in a
-Node project is **`package.json`** (the declared dependencies and their version
-ranges) plus **`package-lock.json`** (the exact resolved versions, committed for
-reproducible installs). Each workspace has its own pair:
+Each workspace declares its dependencies in a **`package.json`** (dependency
+names and their version ranges), with a committed **`package-lock.json`** pinning
+the exact resolved versions for reproducible installs. Read or edit these to see
+what a workspace pulls in:
 
 | Manifest | Lockfile | Key dependencies |
 |---|---|---|
