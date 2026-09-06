@@ -256,12 +256,14 @@ export class KakiMahjongStack extends cdk.Stack {
     // failure degrading to a deterministic model-free review. Shares this route's rate caps and
     // the Budget below.
     //
-    // Defaults to Nova *Lite*, not Micro: a model-comparison run (Micro / Lite / Llama 3.1 8B)
-    // found Micro contradicts itself and Llama 8B inverts the graded facts, while Lite stays
-    // coherent. Lite is still cents-per-thousand-reviews. Classify-intent stays on Micro
+    // Defaults to Nova *2 Lite*, not Micro: a model-comparison run (Micro / Lite / Llama 3.1 8B)
+    // found Micro contradicts itself and Llama 8B inverts the graded facts; a later `bench/` run
+    // of the coach agent then moved the default from Nova Lite to Nova 2 Lite (same JSON
+    // reliability, tighter answers, slightly fewer tokens). Still cents-per-thousand-calls, and it
+    // drives both the review and coach-answer agents. Classify-intent stays on Micro
     // (`bedrockModelId`) — a one-token classification doesn't need the extra capability. Override
     // with `-c agentModelId=...`, matching the deploy region's profile prefix (`us.`/`eu.`/`apac.`).
-    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || "us.amazon.nova-lite-v1:0";
+    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || "us.amazon.nova-2-lite-v1:0";
     if (!cdk.Token.isUnresolved(region)) {
       assertModelRegionMatch(region, agentModelId, "agentModelId");
     }
