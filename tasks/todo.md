@@ -2629,3 +2629,24 @@ Found by the same random-hand search the library was built with (`tryDiscardPuzz
 - [x] `docs/mvp-notes.md` #10 — "8 of the 9" → "8 of the (then 9, now 15)".
 - [x] frontend 108/108 node + 13/13 component. `Puzzle.jsx` renders `Puzzle {i+1}` per entry — no
       code change needed.
+# Default the review + coach agents to Nova 2 Lite
+
+The `bench:coach` comparison (nova-lite / nova-pro / nova-2-lite) settled it: nova-pro's JSON
+compliance collapses; nova-2-lite matches nova-lite's JSON reliability with tighter answers,
+slightly fewer tokens, and better use of the per-claim-option facts. User's call: switch.
+
+- [x] `agents/src/model.js` — `MODEL_ID` fallback `us.amazon.nova-lite-v1:0` → `us.amazon.nova-2-lite-v1:0`.
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `agentModelId` default likewise. `assertModelRegionMatch`
+      passes (`us.` prefix, us-east-1). Drives BOTH the review Lambda and coach-answer Lambda.
+- [x] Docs: `agents/README.md` (env table + coach section), `backend/README.md` (×3).
+      `bench/run.mjs` candidate list reordered (nova-2-lite first, nova-lite kept as baseline).
+- [x] agents 56/56, backend 31/31, `tsc` + `cdk synth` clean (template carries the new id in the
+      Lambda env + the `bedrock:InvokeModel` ARNs).
+
+Note: this also moves the **review** agent to nova-2-lite, which the bench did not exercise. Safe
+by construction — the review agent's per-item grade-matched grounding means a weaker model only
+triggers more deterministic fallback, never a wrong-but-accepted review. Point `bench/` at the
+review agent later if a check is wanted.
+
+**Deploy is still yours:** `cd backend && npx cdk deploy` picks up the new default. Nothing is
+live until then.

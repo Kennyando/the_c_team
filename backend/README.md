@@ -111,9 +111,10 @@ left blank.
 Swap the coach classifier model with `npx cdk deploy -c bedrockModelId=<id>` if your
 account's model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
 if you deploy to eu-*, `apac.…` for ap-*) or a single-region model such as an
-Anthropic Claude Haiku id. The **post-hand review route** is independent: it defaults
-to `us.amazon.nova-lite-v1:0` (Micro contradicts itself on the longer review output,
-an 8B model inverts the facts — Lite stays coherent), override with `-c agentModelId=`.
+Anthropic Claude Haiku id. The **review and coach-answer routes** share `agentModelId`,
+which defaults to `us.amazon.nova-2-lite-v1:0` (Micro contradicts itself on the longer
+output, an 8B model inverts the facts; a `bench/` run of the coach agent then moved the
+default up from Nova Lite to Nova 2 Lite), override with `-c agentModelId=`.
 The `bedrock:InvokeModel`
 IAM policy adapts automatically (`lib/bedrockResources.ts`): a profile id gets the
 profile ARN plus the region-wildcarded base-model ARN, a bare id gets just the one
@@ -212,9 +213,9 @@ npx cdk synth
 # Deploys to us-east-1 unless CDK_DEFAULT_REGION is set (see bin/app.ts).
 # us-east-1 is where the hackathon sandbox's org policy permits Bedrock and
 # where the default model profiles (us.amazon.nova-micro-v1:0 for the coach
-# classifier, us.amazon.nova-lite-v1:0 for the review agent) resolve. If you
-# change the region, also pass -c bedrockModelId / -c agentModelId with that
-# region's inference-profile prefix (eu. / apac.) or a single-region model.
+# classifier, us.amazon.nova-2-lite-v1:0 for the review + coach-answer agents)
+# resolve. If you change the region, also pass -c bedrockModelId / -c agentModelId
+# with that region's inference-profile prefix (eu. / apac.) or a single-region model.
 npx cdk deploy
 ```
 
@@ -230,7 +231,7 @@ via `aws cloudformation describe-stacks`):
   rules) and answers in words. Optional and independent of `ClassifyIntentUrl`. Same
   no-credentials posture as the other two `CoachApi` routes — the shared request-rate throttle
   (`coachApiRateLimit`/`coachApiBurstLimit`), reserved concurrency (`coachApiConcurrency`), and
-  opt-in Budget are what bound its Bedrock spend. Reuses `agentModelId` (Nova Lite).
+  opt-in Budget are what bound its Bedrock spend. Reuses `agentModelId` (Nova 2 Lite).
 - `UserPoolId` / `UserPoolClientId` — for Cognito sign-in in the client
 - `AssetsBucketName` — upload tile graphics/sounds here (e.g. under `tiles/`)
 - `AssetsDomainName` — the CloudFront domain serving those assets and Polly audio
