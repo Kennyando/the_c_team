@@ -1,27 +1,44 @@
 // Where things sit on the table.
 //
-// Pure functions, no React — the same convention as the rest of src/game/, and it means the wall
-// ring can be checked in tests rather than eyeballed in a browser.
+// Keep this module limited to layout logic that is consumed by the current UI.
+// Add seat/river/hand geometry here only when the corresponding component is
+// wired up in the same change and covered by tests.
 
 export const EDGES = ['far', 'right', 'near', 'left'];
 
 /**
- * The wall as stacks around the table edge.
+ * Split the remaining wall into two-tile-high stacks across the four edges.
  *
- * A real wall is built two tiles high, so `remaining` tiles make up half as many stacks. They are
- * dealt out evenly across the four edges, with any remainder going to the far edge first so the
- * ring stays visually balanced from where the player is sitting.
+ * A visual stack represents up to two wall tiles, so the number of stacks is
+ * ceil(remaining / 2). Stacks are distributed evenly around the table. Any
+ * remainder is assigned in EDGES order (far, right, near, left), preserving
+ * the existing behaviour and keeping the ring balanced.
  *
- * Returns one entry per edge: `{ edge, stacks }`.
+ * Invalid, negative, and non-finite values are treated as an empty wall. This
+ * keeps the render path defensive rather than throwing during state changes.
+ *
+ * @param {number} remaining number of tiles remaining in the wall
+ * @returns {{ edge: string, stacks: number }[]}
  */
 export function wallStacks(remaining) {
-  const total = Math.max(0, Math.ceil(remaining / 2));
-  const each = Math.floor(total / 4);
-  let spare = total - each * 4;
+  const safeRemaining = Number.isFinite(remaining)
+    ? Math.max(0, Math.floor(remaining))
+    : 0;
+
+  const totalStacks = Math.ceil(safeRemaining / 2);
+  const stacksPerEdge = Math.floor(totalStacks / EDGES.length);
+  let remainder = totalStacks % EDGES.length;
 
   return EDGES.map((edge) => {
-    const extra = spare > 0 ? 1 : 0;
-    spare -= extra;
-    return { edge, stacks: each + extra };
+    const extraStack = remainder > 0 ? 1 : 0;
+
+    if (remainder > 0) {
+      remainder -= 1;
+    }
+
+    return {
+      edge,
+      stacks: stacksPerEdge + extraStack,
+    };
   });
 }
