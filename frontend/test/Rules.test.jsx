@@ -1,16 +1,46 @@
-// The rules page: embeds the rulebook PDF. (Its "Home" button lives in App.jsx's shared topbar,
-// not in this component — see App.test.jsx for that navigation.)
+// The rules page: the rulebook retyped as text on the page (no embedded PDF). Its "Home" button
+// lives in App.jsx's shared topbar, not in this component — see App.test.jsx for navigation.
 // Run with `npm run test:components` from frontend/.
 
 import { test, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 import Rules from '../src/components/Rules.jsx';
 
-test('embeds the rulebook PDF in an iframe', () => {
+test('renders the rules as text, not an embedded PDF', () => {
   const { container } = render(<Rules />);
-  const iframe = container.querySelector('iframe');
-  expect(iframe).toBeTruthy();
-  expect(iframe.getAttribute('src')).toBe('/rules.pdf');
-  expect(iframe.getAttribute('title')).toBe('Mahjong rules');
+
+  expect(container.querySelector('iframe')).toBeNull();
+  expect(screen.getByRole('heading', { level: 1, name: /Rules & Regulations/i })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /Basic Rules of Play/i })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /Doubles & Payments/i })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /Glossary/i })).toBeTruthy();
+});
+
+test('the payments and scoring tables are present', () => {
+  const { container } = render(<Rules />);
+  const tables = container.querySelectorAll('table');
+  expect(tables.length).toBeGreaterThanOrEqual(4);
+  expect(screen.getByText(/How to score a double/i)).toBeTruthy();
+});
+
+test('tile pictures are drawn: the full numbered suits, winds and dragons', () => {
+  const { container } = render(<Rules />);
+
+  expect(screen.getByRole('heading', { name: /^The Tiles$/i })).toBeTruthy();
+  // Every rank of every suit, all four winds, all three dragons.
+  for (const name of ['1 Dots', '9 Bamboo', '5 Characters', 'East Wind', 'North Wind', 'Green Dragon']) {
+    expect(screen.getAllByRole('img', { name }).length).toBeGreaterThan(0);
+  }
+  // Glossary examples use them too — one 3 Characters in the tile chart, three more in the Pong.
+  expect(screen.getAllByRole('img', { name: '3 Characters' }).length).toBe(4);
+  expect(container.querySelectorAll('.rules-tiles').length).toBeGreaterThanOrEqual(8);
+});
+
+test('no organisation branding, address or contact details remain', () => {
+  const { container } = render(<Rules />);
+  const text = container.textContent;
+  for (const banned of [/SPGG/i, /Graduates' Guild/i, /Dover Road/i, /spgg\.org/i, /\(65\)6796/, /NUS Mahjong/i]) {
+    expect(text).not.toMatch(banned);
+  }
 });
