@@ -24,6 +24,19 @@ test('the payments and scoring tables are present', () => {
   expect(screen.getByText(/How to score a double/i)).toBeTruthy();
 });
 
+test('tile pictures are drawn: the full numbered suits, winds and dragons', () => {
+  const { container } = render(<Rules />);
+
+  expect(screen.getByRole('heading', { name: /^The Tiles$/i })).toBeTruthy();
+  // Every rank of every suit, all four winds, all three dragons.
+  for (const name of ['1 Dots', '9 Bamboo', '5 Characters', 'East Wind', 'North Wind', 'Green Dragon']) {
+    expect(screen.getAllByRole('img', { name }).length).toBeGreaterThan(0);
+  }
+  // Glossary examples use them too — one 3 Characters in the tile chart, three more in the Pong.
+  expect(screen.getAllByRole('img', { name: '3 Characters' }).length).toBe(4);
+  expect(container.querySelectorAll('.rules-tiles').length).toBeGreaterThanOrEqual(8);
+});
+
 test('no organisation branding, address or contact details remain', () => {
   const { container } = render(<Rules />);
   const text = container.textContent;
