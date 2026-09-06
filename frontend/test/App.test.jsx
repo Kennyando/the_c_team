@@ -57,11 +57,11 @@ test('the narration pill shows the latest line, then hides itself after a second
   }
 });
 
-test('a new table starts flat (top-down) with the animal tiles in', () => {
+test('a new table starts in the seated view with the animal tiles in', () => {
   const { container } = render(<App />);
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
 
-  expect(container.querySelector('main.table').className).toMatch(/view-flat/);
+  expect(container.querySelector('main.table').className).toMatch(/view-seated/);
 
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
   const animals = screen.getByLabelText(/animal tiles/);

@@ -79,7 +79,7 @@ export default function App() {
   const [rules, setRules] = useState(START_RULES);
   const [display, setDisplay] = useState(() => ({
     scale: fitScale(), scaleAuto: true, contrast: false, voice: false,
-    tileStyle: 'traditional', coachHints: false, tableView: 'flat',
+    tileStyle: 'traditional', coachHints: false, tableView: 'seated',
   }));
   const [state, setState] = useState(() => newGame(START_RULES, 0));
   const [confirm, setConfirm] = useState(null);
@@ -231,7 +231,8 @@ export default function App() {
 
             <Table state={state} />
 
-            {/* Outside the scene on purpose: your hand is never tilted or foreshortened. */}
+            {/* Rests on the near edge of the table, but never tilted — the tiles you tap stay
+                flat and full size. */}
             <Hand
               player={you}
               dealer={state.dealer}
