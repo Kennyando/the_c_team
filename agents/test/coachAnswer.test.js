@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 
 import { runCoachAnswer } from '../src/coach/coachAnswer.js';
-import { coachContext, renderFact } from '../src/context/coachContext.js';
+import { coachContext, renderFact, relevantFacts } from '../src/context/coachContext.js';
 
 // --- fixtures -------------------------------------------------------------------------------
 
@@ -109,6 +109,29 @@ test('one grounded line and one ungrounded line drops the whole reply', async ()
   assert.equal(result.modelAssisted, false);
 });
 
+test('citing a fact the question filtered out of the prompt drops the reply', async () => {
+  // "what should I discard" keeps the discardPick fact (f5) and drops the handValue fact (f6),
+  // so a line citing f6 is citing something the model was never shown.
+  mockReply({ answer: [{ refs: ['f6'], text: 'This hand is worth a lot.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'what should I discard here' });
+  assert.equal(result.modelAssisted, false);
+});
+
+// --- grounding: no unsupported scoring pattern --------------------------------------------------
+
+test('a line naming a scoring pattern this table does not play drops the reply', async () => {
+  // POSITION plays dragonPong + halfFlush, NOT fullFlush.
+  mockReply({ answer: [{ refs: ['f3'], text: 'You could push for a full flush from here.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('a line naming a pattern the table does play is fine', async () => {
+  mockReply({ answer: [{ refs: ['f0'], text: 'A half flush is on the table here, worth chasing.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, true);
+});
+
 // --- bad output -> deterministic fallback -----------------------------------------------------
 
 test('a non-JSON reply falls back to the deterministic answer', async () => {
@@ -204,4 +227,36 @@ test('coachContext emits one structured fact per claim option', () => {
     assert.ok(['yes', 'no'].includes(c.verdict));
     assert.equal(typeof c.advice, 'string');
   }
+});
+
+test('the rules fact carries the active rule keys for scoring-claim checks', () => {
+  const rules = coachContext(POSITION).facts.find((f) => f.type === 'rules');
+  assert.deepEqual(rules.keys.sort(), ['dragonPong', 'halfFlush']);
+});
+
+// --- relevantFacts: narrow the situational facts to the question --------------------------------
+
+test('relevantFacts keeps core facts always and narrows the situational ones by question', () => {
+  const { facts } = coachContext(POSITION); // has discardPick (f5) and handValue (f6)
+  const core = ['rules', 'seat', 'wall', 'distance', 'waits'];
+
+  const forValue = relevantFacts(facts, 'roughly how much is this hand worth');
+  assert.deepEqual(
+    forValue.map((f) => f.type),
+    [...core, 'handValue'],
+  );
+
+  const forDiscard = relevantFacts(facts, 'which tile should I throw');
+  assert.deepEqual(
+    forDiscard.map((f) => f.type),
+    [...core, 'discardPick'],
+  );
+
+  // Nothing situational clearly matches -> keep everything (this agent runs on unplaceable
+  // questions, so dropping a fact we might have needed is the worse failure).
+  const forVague = relevantFacts(facts, 'what is going on');
+  assert.deepEqual(forVague, facts);
+
+  // Ids are never renumbered by filtering.
+  assert.deepEqual(forValue.map((f) => f.id), ['f0', 'f1', 'f2', 'f3', 'f4', 'f6']);
 });

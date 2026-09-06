@@ -51,7 +51,7 @@ export function runCoachAnswer(input?: RunCoachAnswerInput): Promise<CoachAnswer
  * discriminates the payload. `renderFact()` turns one into the sentence the prompt shows.
  */
 export type CoachFact = { id: string } & (
-  | { type: "rules"; active: string[]; limit: number }
+  | { type: "rules"; active: string[]; keys: string[]; limit: number }
   | { type: "seat"; seatWind: string; dealer: boolean; prevailingWind: string }
   | { type: "wall"; count: number }
   | { type: "distance"; shanten: number }
@@ -89,6 +89,8 @@ export interface CoachContext {
 }
 export function coachContext(position: Record<string, unknown>): CoachContext;
 export function renderFact(fact: CoachFact): string;
+/** The subset of facts worth showing the model for `question`; core facts always kept. */
+export function relevantFacts(facts: CoachFact[], question: string): CoachFact[];
 
 export interface DecisionFact {
   /** Stable id (`d<index>`) so a grounding check can cite which decision a review bullet is about. */

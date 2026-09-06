@@ -25,6 +25,7 @@ import {
   describeDistance,
   seatWindOf,
   tileName,
+  RULE_LABELS,
 } from '@kaki/game';
 
 import { rulesContext } from './rulesContext.js';
@@ -82,7 +83,11 @@ export function coachContext(position) {
   const add = (type, data) => facts.push({ id: `f${facts.length}`, type, ...data });
 
   const rules = rulesContext(state.rules);
-  add('rules', { active: rules.active, limit: rules.limit });
+  add('rules', {
+    active: rules.active, // labels, for the sentence
+    keys: Object.keys(RULE_LABELS).filter((k) => state.rules[k] === true), // for scoring-claim checks
+    limit: rules.limit,
+  });
 
   add('seat', {
     seatWind: seatWindOf(0, state.dealer),
@@ -187,4 +192,37 @@ export function renderFact(f) {
     default:
       return '';
   }
+}
+
+// Fact types that describe the table/hand at large — always worth giving the model.
+const CORE_FACT_TYPES = new Set(['rules', 'seat', 'wall', 'distance', 'waits']);
+
+// Words that, in the question, point at a situational fact. Deliberately generous; the filter
+// only ever *narrows* the situational facts, and only when at least one clearly matches.
+const TOPIC_WORDS = {
+  discardPick: ['discard', 'throw', 'dump', 'drop', 'chuck', 'ditch', 'cut', 'get rid', 'let go', 'play'],
+  claimOption: ['pong', 'peng', 'pung', 'chow', 'chi', 'kong', 'gang', 'call', 'claim', 'take', 'meld'],
+  handValue: ['worth', 'value', 'score', 'scoring', 'tai', 'point', 'pay', 'big'],
+};
+
+/**
+ * The subset of `facts` worth putting in front of the model for this question. Core facts
+ * (rules / seat / wall / distance / waits) are always kept. Situational facts (the coach's
+ * discard pick, the claim options, the hand's value) are kept only if the question's wording
+ * points at them — but if *none* of them clearly match (the common case here, since this agent
+ * only runs on questions nothing else could place), they are all kept. Never drops a core fact,
+ * never returns empty, preserves ids and order.
+ *
+ * @param {import('../../types/index.d.ts').CoachFact[]} facts
+ * @param {string} question
+ * @returns {import('../../types/index.d.ts').CoachFact[]}
+ */
+export function relevantFacts(facts, question) {
+  const q = String(question || '').toLowerCase();
+  const situational = facts.filter((f) => !CORE_FACT_TYPES.has(f.type));
+  const matched = situational.filter((f) =>
+    (TOPIC_WORDS[f.type] || []).some((w) => q.includes(w)),
+  );
+  const keptSituational = new Set((matched.length ? matched : situational).map((f) => f.id));
+  return facts.filter((f) => CORE_FACT_TYPES.has(f.type) || keptSituational.has(f.id));
 }

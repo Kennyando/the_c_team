@@ -5,7 +5,7 @@
 export { runReview } from './review/reviewHand.js';
 export { runCoachAnswer } from './coach/coachAnswer.js';
 export { decisionContext } from './context/decisionContext.js';
-export { coachContext, renderFact } from './context/coachContext.js';
+export { coachContext, renderFact, relevantFacts } from './context/coachContext.js';
 export { rulesContext } from './context/rulesContext.js';
 export { createMemory } from './memory/memory.js';
 export { MODEL_ID } from './model.js';

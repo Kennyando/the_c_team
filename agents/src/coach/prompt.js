@@ -30,13 +30,14 @@ export const SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
- * @param {ReturnType<import('../context/coachContext.js').coachContext>} ctx
+ * @param {import('../context/coachContext.js').CoachFact[]} facts  already narrowed to the ones
+ *        relevant to this question (see relevantFacts)
  * @param {string} question  the player's question, already trimmed and length-capped
  */
-export function buildUserPrompt(ctx, question) {
+export function buildUserPrompt(facts, question) {
   return [
     'FACTS (cite these by id):',
-    ...ctx.facts.map((f) => `${f.id}: ${renderFact(f)}`),
+    ...facts.map((f) => `${f.id}: ${renderFact(f)}`),
     '',
     `QUESTION: ${question}`,
   ].join('\n');

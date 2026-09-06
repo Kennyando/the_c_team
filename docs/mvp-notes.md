@@ -204,24 +204,33 @@ These are deliberate MVP boundaries, not defects:
      guarantees above hold.
    - **coach-answer** (`backend/lambda/coachAnswer.ts` → `runCoachAnswer` in `@kaki/agents`) is
      the last resort: a model reads the position and answers in its own words. This one *does*
-     write player-facing text — a deliberate exception. It is fenced: `coachContext()` builds the
-     evidence server-side from `advisor.js` against this table's house rules as **structured typed
-     facts** (`{ id, type, ...data }` — `id` is `f0`, `f1`, …), which `renderFact()` turns into
-     the sentences the prompt shows; the model must return `{ answer: [{ refs, text }] }` and
-     cite, per line, the fact ids it rests on; `runCoachAnswer()` drops the whole reply unless
-     every cited id resolves to a real fact. The answer is flagged so the UI badges it "AI", and
-     any failure drops to the local guided fallback. It is *additive*, never a regression: every
-     rules answer above is still delivered by the guaranteed local/classifier path.
+     write player-facing text — a deliberate exception. It is fenced:
+     - `coachContext()` builds the evidence server-side from `advisor.js` against this table's
+       house rules as **structured typed facts** (`{ id, type, ...data }` — `id` is `f0`, `f1`,
+       …), which `renderFact()` turns into the sentences the prompt shows.
+     - `relevantFacts(facts, question)` narrows the situational facts (the discard pick, the
+       claim options, the hand's value) to the ones the question's wording points at — core
+       facts (rules / seat / wall / distance / waits) are always kept, and if nothing situational
+       clearly matches, all are kept.
+     - the model must return `{ answer: [{ refs, text }] }` and cite, per line, the fact ids it
+       rests on; `runCoachAnswer()` drops the whole reply unless every cited id was in the
+       (narrowed) prompt **and** no line names a scoring pattern this table does not play
+       (checked against the rules fact's own key list — `half flush` / `full flush` / `all pungs`
+       / `all chows`).
+     - the answer is flagged so the UI badges it "AI"; any failure drops to the local guided
+       fallback.
+
+     It is *additive*, never a regression: every rules answer above is still delivered by the
+     guaranteed local/classifier path.
 
    Both routes take no credentials (see `backend/README.md`'s "no credentials — throttling is the
    actual defense" section) — deliberately rate-limited and concurrency-capped rather than
    authenticated, appropriate for a same-table coach but worth revisiting if this ever needs real
    accounts.
 
-   coach-answer's grounding is *existence-level*: a line's cited facts are guaranteed to exist,
-   not to entail what the line says. The facts are structured (typed objects, not strings) so the
-   remaining follow-up is tractable: check a line that names a scoring pattern — or a tai count,
-   or a tile — against the cited fact's own fields, and reject the reply on a mismatch.
+   The grounding is still existence + scoring-pattern level, not full entailment — a line can
+   cite a real fact and still misstate a *number* from it. Extending the field-level check to
+   tai / points / tile-count claims is the next step, and the typed facts make it mechanical.
 8. **Discard advice now weighs hand value alongside speed, but mostly as a tie-breaker in
    practice — partially addressed.** `bestDiscard()`/`evaluateDiscard()` in `advisor.js` blend
    resulting shanten with `estimateValue()`: an exact expected-value calculation at tenpai (real
