@@ -68,3 +68,45 @@ export function normalizeReviewResult(raw, { modelAssisted }) {
     modelAssisted,
   };
 }
+
+// --- coach answer ----------------------------------------------------------------------------
+//
+// The coach agent (src/coach/) answers a typed help question from the live position. Same stance
+// as the review agent: the model's raw reply is never trusted as-is. It must be a JSON object
+// `{ "answer": string[] }` — 1..MAX_COACH_LINES short lines — or the whole reply is dropped and a
+// deterministic "couldn't work that out" answer is used instead. (Unlike the review path, the
+// deterministic answer here is minimal on purpose: the frontend's own local coach is the real
+// model-free floor, and it has already run by the time a question reaches this agent.)
+
+export const MAX_COACH_LINE = 160;
+export const MAX_COACH_LINES = 3;
+
+/**
+ * A finished coach answer — the same shape every local coach answer has, so Coach.jsx renders it
+ * with no special-casing.
+ * @typedef {Object} CoachAnswerResult
+ * @property {string}   title
+ * @property {string[]} lines
+ * @property {boolean}  modelAssisted   true when a model wrote it, false for the fixed fallback.
+ */
+
+/** True for the shape the model must return: `{ answer: string[] }`. Never throws. */
+export function isCoachAnswerShape(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Array.isArray(value.answer) &&
+    value.answer.length >= 1 &&
+    value.answer.length <= MAX_COACH_LINES &&
+    value.answer.every((line) => isShortString(line, MAX_COACH_LINE))
+  );
+}
+
+/** Turn a shape-valid model reply into a clean CoachAnswerResult. Assumes isCoachAnswerShape(raw). */
+export function normalizeCoachAnswer(raw) {
+  return {
+    title: 'Coach',
+    lines: raw.answer.slice(0, MAX_COACH_LINES).map((line) => line.trim()),
+    modelAssisted: true,
+  };
+}

@@ -369,19 +369,25 @@ export const STATIC_ANSWERS = STATIC;
 // `ask()` above is untouched and stays fully local and synchronous — every existing behaviour,
 // and every test against it, is unaffected by anything below this line.
 //
-// `askWithModel()` wraps it: only when the local keyword patterns find no match does it ask a
-// backend model to pick which *existing* intent best fits the wording. The model never writes
-// what the player reads — it only chooses which of the handlers above to call — so none of the
-// accuracy guarantees above (correct by construction, aware of this table's own house rules) are
-// weakened. If no endpoint is configured, or the call fails, times out, or returns anything we
-// don't recognise, the original local fallback is returned unchanged. This is the upgrade path
-// docs/mvp-notes.md's known-limitation #7 names: "keep the local answers and use a model only to
-// interpret the question."
+// `askWithModel()` wraps it and only reaches for the network when `ask()` returned its guided
+// fallback (nothing matched). Two tiers, either of which can be left unconfigured:
+//
+//   1. classify-intent — the model picks which *existing* rules-accurate handler fits the
+//      wording. It never writes what the player reads; guarantees above are untouched.
+//   2. coach-answer — the model reads the position and answers in its own words. This one *does*
+//      write player-facing text, a deliberate exception (docs/mvp-notes.md #7). It is fenced:
+//      the backend builds the facts from advisor.js against this table's rules, the reply is
+//      length-checked, the answer is flagged `modelAssisted` for the UI, and any failure falls
+//      through to the local `fallback()` — so the floor is always the offline coach.
 
 // import.meta.env only exists under Vite; plain Node (the test runner) leaves it undefined, so
-// this is unconfigured — and askWithModel falls straight back to ask() — in every test.
+// these are unconfigured — and askWithModel falls straight back to ask() — in every test.
 const CLASSIFY_INTENT_URL = import.meta.env?.VITE_CLASSIFY_INTENT_URL;
 const CLASSIFY_TIMEOUT_MS = 4000;
+const COACH_ANSWER_URL = import.meta.env?.VITE_COACH_ANSWER_URL;
+// A cold Lambda plus a Bedrock call; the handler itself allows 15s. Same reasoning as
+// review.js's REVIEW_TIMEOUT_MS — the coach is not on any critical path.
+const COACH_ANSWER_TIMEOUT_MS = 13000;
 
 /**
  * Calls the backend classifier. Never throws: any failure is reported as `null`.
@@ -413,32 +419,89 @@ async function classifyIntentRemote(question, url) {
   }
 }
 
+/** The `state` subset the coach agent needs to rebuild the position — never opponents' hands. */
+function serializePosition(state) {
+  const seats = Array.isArray(state.players) ? state.players : [];
+  return {
+    hand: seats[0]?.hand ?? [],
+    melds: seats.map((p) => p?.melds ?? []),
+    bonus: seats.map((p) => p?.bonus ?? []),
+    discards: state.discards ?? [],
+    wallCount: state.wall?.length ?? 0,
+    turn: state.turn,
+    phase: state.phase,
+    dealer: state.dealer,
+    prevailingWind: state.prevailingWind,
+    rules: state.rules,
+    claimOptions: state.claimOptions ?? [],
+    pending: state.pending ?? null,
+  };
+}
+
 /**
- * Route a question exactly like `ask()`, but escalate to the model classifier when — and only
- * when — the local patterns found nothing. Always resolves; never throws.
- *
- * Takes `getState()`, not a state value, and calls it twice: once before the classify round trip
- * and again after. The game keeps moving on its own timer while that request is in flight (up to
- * `CLASSIFY_TIMEOUT_MS`), so re-reading state after the await avoids answering against a position
- * that's no longer current by the time the model responds — e.g. "not your turn yet" only catches
- * a turn that changed *during* the wait if the check runs against the state that's true now, not
- * the state at the moment the question was asked.
- *
- * `classifyUrl` defaults to the configured endpoint and only ever needs overriding in tests
- * (frontend/test/integration/ wires it to a fake handler) — Coach.jsx always calls this with
- * just the two arguments.
+ * Asks the coach agent to read the position and answer the question in words. Never throws: any
+ * failure (no endpoint, non-2xx, timeout, malformed reply) is reported as `null`.
  */
-export async function askWithModel(question, getState, { classifyUrl = CLASSIFY_INTENT_URL } = {}) {
+async function answerFromModel(question, state, coachUrl) {
+  if (!coachUrl) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), COACH_ANSWER_TIMEOUT_MS);
+  try {
+    const res = await fetch(coachUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, position: serializePosition(state) }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const { answer } = await res.json();
+    const wellFormed =
+      answer &&
+      typeof answer.title === 'string' &&
+      Array.isArray(answer.lines) &&
+      answer.lines.length > 0 &&
+      answer.lines.every((l) => typeof l === 'string');
+    return wellFormed ? { title: answer.title, lines: answer.lines.slice(0, MAX_LINES) } : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Route a question exactly like `ask()`, but when the local patterns find nothing, escalate:
+ * first to the classifier (pick an existing handler), then to the coach agent (answer in words).
+ * Always resolves; never throws.
+ *
+ * Takes `getState()`, not a state value, and re-reads it after each round trip. The game keeps
+ * moving on its own timer while a request is in flight, so answering against the state that is
+ * true *now* — not the snapshot from when the question was asked — is what makes "not your turn
+ * yet" and the position facts the coach agent gets stay correct.
+ *
+ * `classifyUrl` / `coachUrl` default to the configured endpoints and only need overriding in
+ * tests — Coach.jsx always calls this with just the two arguments.
+ */
+export async function askWithModel(
+  question,
+  getState,
+  { classifyUrl = CLASSIFY_INTENT_URL, coachUrl = COACH_ANSWER_URL } = {},
+) {
   const local = ask(question, getState());
   if (local.intent !== 'fallback') return local;
 
+  // Tier 1: the classifier picks one of the existing, rules-accurate handlers.
   const intentId = await classifyIntentRemote(question, classifyUrl);
-  if (!intentId) return local;
+  const intent = intentId ? INTENTS.find((i) => i.id === intentId) : null;
+  if (intent) {
+    const answer = intent.answer(getState());
+    return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
+  }
 
-  // Never trust the remote id blindly: only ever dispatch to an intent we actually know about.
-  const intent = INTENTS.find((i) => i.id === intentId);
-  if (!intent) return local;
+  // Tier 2: nothing fit a handler — let the coach agent read the position and answer in words.
+  const written = await answerFromModel(question, getState(), coachUrl);
+  if (written) return { ...written, intent: 'model.coach', modelAssisted: true };
 
-  const answer = intent.answer(getState());
-  return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
+  return local;
 }

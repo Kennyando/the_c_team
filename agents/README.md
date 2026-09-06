@@ -1,8 +1,14 @@
 # @kaki/agents — AI agent framework
 
-How AI agents plug into Kaki Mahjong. One agent is built today (post-hand **Review**); the
-structure is sized so the next two (a richer coach, a thinking-bot opponent) drop in without a
-rewrite.
+How AI agents plug into Kaki Mahjong. Two agents are built today — the post-hand **Review**
+(`src/review/`) and the last-resort help-**Coach** answer (`src/coach/`) — and the structure is
+sized so the next (a thinking-bot opponent) drops in without a rewrite.
+
+The Coach agent bends one rule the Review agent keeps: it is allowed to *write* the answer, not
+just phrase graded facts. It is still fenced the same way — `coachContext.js` builds the position
+facts deterministically from `advisor.js` against the table's house rules, the reply is
+shape-checked, and any failure returns a fixed deterministic answer (the frontend's own local
+coach is the real offline floor). See `docs/mvp-notes.md` #7.
 
 ## The shape every agent has
 

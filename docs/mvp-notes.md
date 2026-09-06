@@ -194,16 +194,27 @@ These are deliberate MVP boundaries, not defects:
 6. **State is in memory only.** Reloading the page starts a fresh session — no profiles, friends
    list or game history (those need Phase 3's Cognito and DynamoDB).
 7. **The coach understands set phrasings, not free-form English — partially addressed.** It covers
-   the questions players actually ask, and offers tappable ones, so an unusual wording used to fall
-   straight back to a menu of suggestions. `askWithModel()` in `src/game/coach.js` now escalates
-   exactly that case to a Bedrock-backed classifier (`backend/lambda/classifyIntent.ts`, deployed
-   separately) which picks which *existing* local answer fits — the model never writes what the
-   player reads, so the accuracy guarantees above are unchanged. Optional: with no backend deployed
-   (`VITE_CLASSIFY_INTENT_URL` unset), the coach behaves exactly as before, 100% local. The route
-   takes no credentials (see `backend/README.md`'s "no credentials — throttling is the actual
-   defense" section), so it's deliberately rate-limited and concurrency-capped rather than
-   authenticated — appropriate for a same-table coach, but worth revisiting if this ever needs
-   real accounts.
+   the questions players actually ask, and offers tappable ones. `ask()` in `src/game/coach.js`
+   first tries ordered regex patterns, then a keyword score (an unmatched-but-obvious question
+   still reaches the right handler; a tie or a blank falls through). `askWithModel()` then adds
+   two optional network tiers, each independently gated on its own `VITE_*` URL — with neither
+   set, the coach is 100% local and behaves exactly as before:
+   - **classify-intent** (`backend/lambda/classifyIntent.ts`) picks which *existing* local answer
+     fits an unusual wording. The model never writes what the player reads, so the accuracy
+     guarantees above hold.
+   - **coach-answer** (`backend/lambda/coachAnswer.ts` → `runCoachAnswer` in `@kaki/agents`) is
+     the last resort: a model reads the position and answers in its own words. This one *does*
+     write player-facing text — a deliberate exception. It is fenced: the facts are built
+     server-side from `advisor.js` against this table's house rules and handed to the model, the
+     reply is length- and shape-checked, the answer is flagged so the UI badges it "AI", and any
+     failure drops to the local guided fallback. It is *additive*, never a regression: every
+     rules answer above is still delivered by the guaranteed local/classifier path.
+
+   Both routes take no credentials (see `backend/README.md`'s "no credentials — throttling is the
+   actual defense" section) — deliberately rate-limited and concurrency-capped rather than
+   authenticated, appropriate for a same-table coach but worth revisiting if this ever needs real
+   accounts. A natural hardening step for coach-answer: reject a reply that names a scoring
+   pattern the active house rules don't include.
 8. **Discard advice now weighs hand value alongside speed, but mostly as a tie-breaker in
    practice — partially addressed.** `bestDiscard()`/`evaluateDiscard()` in `advisor.js` blend
    resulting shanten with `estimateValue()`: an exact expected-value calculation at tenpai (real
