@@ -72,24 +72,13 @@ export const HONOUR_GLYPHS = {
 };
 
 /**
- * Simple motifs for the bonus tiles.
- * The four Flowers (梅 plum / 蘭 orchid / 菊 chrysanthemum / 竹 bamboo) share one uniform flower
- * shape rather than four distinct plant illustrations — matching the reference set, where all
- * four/eight bonus tiles read as "a flower tile" at a glance, differentiated by the corner number
- * rather than by botanically distinct artwork.
- * The four Seasons stay distinct: a real set shows figurative scenes (fisherman, woodcutter,
- * farmer, scholar), which do not survive being drawn at tile size — so they get a seasonal mark
- * plus their number instead.
+ * Both bonus suits share one uniform flower shape, matching the reference set where every bonus
+ * tile reads as "a flower tile" at a glance. Flowers are drawn with red petals, Seasons with blue
+ * petals; within a suit the corner number tells the four apart.
  */
 export const MOTIFS = {
-  f1: 'flower',
-  f2: 'flower',
-  f3: 'flower',
-  f4: 'flower',
-  s1: 'sprout',    // 春 spring
-  s2: 'sun',       // 夏 summer
-  s3: 'leaf',      // 秋 autumn
-  s4: 'snow',      // 冬 winter
+  f1: 'flower', f2: 'flower', f3: 'flower', f4: 'flower',
+  s1: 'flower', s2: 'flower', s3: 'flower', s4: 'flower',
 };
 
 const BONUS_LABEL = { f: 'FLOWER', s: 'SEASON' };
@@ -121,12 +110,12 @@ export function faceSpec(tile) {
     return {
       kind: 'bonus',
       motif: MOTIFS[tile],
+      petal: tile[0] === 's' ? 'blue' : 'red',
       index: rankOf(tile),
       label: BONUS_LABEL[tile[0]],
     };
   }
 
-  // Animal tiles are an off-by-default house rule; their artwork is figurative, so they keep the
-  // character face rather than getting a poor drawing.
-  return { kind: 'animal', glyph: { a1: '貓', a2: '鼠', a3: '雞', a4: '蟲' }[tile], index: rankOf(tile) };
+  // Animal tiles (cat / mouse / rooster / centipede) are drawn as little figures.
+  return { kind: 'animal', animal: tile, index: rankOf(tile) };
 }

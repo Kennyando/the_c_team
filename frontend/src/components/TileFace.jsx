@@ -84,16 +84,16 @@ function CornerIndex({ text }) {
   );
 }
 
-function Motif({ motif }) {
-  switch (motif) {
-    case 'flower': // one uniform flower for all four Flower tiles, per the reference set
+/** One uniform flower for every bonus tile — red petals for Flowers, blue for Seasons. */
+function Flower({ petal }) {
+  const colour = petal === 'blue' ? BLUE : RED;
   return (
     <g>
       {[0, 72, 144, 216, 288].map((a) => (
         <circle key={a} r="16"
           cx={50 + 19 * Math.sin((a * Math.PI) / 180)}
           cy={66 - 19 * Math.cos((a * Math.PI) / 180)}
-          fill={RED} opacity="0.9" />
+          fill={colour} opacity="0.9" />
       ))}
       <circle cx="50" cy="66" r="7.5" fill="var(--tile-face)" />
       <path d="M50 86 L50 112" stroke={GREEN} strokeWidth="5" strokeLinecap="round" fill="none" />
@@ -101,53 +101,94 @@ function Motif({ motif }) {
       <path d="M50 100 Q66 96 70 84 Q54 86 50 98 Z" fill={GREEN} />
     </g>
   );
-    case 'sprout': // spring
+}
+
+const CENTIPEDE_SEGMENTS = [
+  [36, 34], [46, 42], [54, 52], [58, 64], [58, 78], [54, 90], [48, 101], [40, 110],
+];
+
+/** Little figures for the four animal tiles: cat, mouse, rooster, centipede. */
+function Animal({ id }) {
+  switch (id) {
+    case 'a1': // cat, sitting and facing you
       return (
         <g>
-          <path d="M50 116 L50 60" stroke={GREEN} strokeWidth="7" strokeLinecap="round" fill="none" />
-          <path d="M50 76 Q26 70 22 48 Q46 52 50 74 Z" fill={GREEN} />
-          <path d="M50 64 Q74 58 78 36 Q54 40 50 62 Z" fill={GREEN} />
-        </g>
-      );
-    case 'sun': // summer
-      return (
-        <g>
-          {Array.from({ length: 8 }, (_, i) => i * 45).map((a) => (
-            <rect key={a} x="47" y="16" width="6" height="18" rx="3" fill={RED}
-              transform={`rotate(${a} 50 72)`} />
-          ))}
-          <circle cx="50" cy="72" r="26" fill={RED} />
-        </g>
-      );
-    case 'leaf': // autumn
-      return (
-        <g>
-          <path d="M50 124 Q22 100 24 62 Q36 36 50 22 Q64 36 76 62 Q78 100 50 124 Z" fill={RED} />
-          <path d="M50 124 L50 40" stroke="var(--tile-face)" strokeWidth="4" strokeLinecap="round" />
-          <g stroke="var(--tile-face)" strokeWidth="3" strokeLinecap="round">
-            <path d="M50 62 L32 52" /><path d="M50 62 L68 52" />
-            <path d="M50 88 L30 80" /><path d="M50 88 L70 80" />
+          <g fill={INK}>
+            <path d="M50 120 Q22 120 22 84 Q22 56 34 46 L66 46 Q78 56 78 84 Q78 120 50 120 Z" />
+            <circle cx="50" cy="48" r="22" />
+            <path d="M30 36 L24 12 L44 30 Z" />
+            <path d="M70 36 L76 12 L56 30 Z" />
+            <path d="M76 110 Q98 102 88 70 Q84 92 70 100 Z" />
+          </g>
+          <g fill="var(--tile-face)">
+            <circle cx="42" cy="48" r="4.2" /><circle cx="58" cy="48" r="4.2" />
+          </g>
+          <g fill={INK}>
+            <circle cx="42" cy="48" r="1.9" /><circle cx="58" cy="48" r="1.9" />
+            <path d="M50 55 l-4 4 h8 Z" />
+          </g>
+          <g stroke={INK} strokeWidth="2" strokeLinecap="round">
+            <path d="M30 52 L12 48" /><path d="M30 56 L12 58" />
+            <path d="M70 52 L88 48" /><path d="M70 56 L88 58" />
           </g>
         </g>
       );
-    case 'snow': // winter
+    case 'a2': // mouse, in profile facing right
       return (
-        <g stroke={BLUE} strokeWidth="6" strokeLinecap="round">
-          {[0, 60, 120].map((a) => (
-            <line key={a} x1="24" y1="72" x2="76" y2="72" transform={`rotate(${a} 50 72)`} />
-          ))}
-          {[0, 60, 120].map((a) => (
-            <g key={`t${a}`} transform={`rotate(${a} 50 72)`} strokeWidth="4">
-              <line x1="30" y1="72" x2="38" y2="63" />
-              <line x1="30" y1="72" x2="38" y2="81" />
-              <line x1="70" y1="72" x2="62" y2="63" />
-              <line x1="70" y1="72" x2="62" y2="81" />
-            </g>
-          ))}
+        <g>
+          <path d="M22 96 Q4 100 6 122 Q14 108 26 104 Z" fill={INK} opacity="0.6" />
+          <g fill={INK} opacity="0.68">
+            <ellipse cx="42" cy="86" rx="24" ry="18" />
+            <path d="M58 86 Q64 62 82 60 Q96 62 98 74 Q96 88 82 92 Q68 96 58 92 Z" />
+            <circle cx="66" cy="58" r="13" />
+          </g>
+          <circle cx="66" cy="58" r="6" fill="var(--tile-face)" opacity="0.5" />
+          <circle cx="80" cy="72" r="3" fill="var(--tile-face)" />
+          <circle cx="80" cy="72" r="1.6" fill={INK} />
+          <circle cx="97" cy="72" r="2.6" fill={RED} />
+          <g stroke={INK} strokeWidth="4" strokeLinecap="round" opacity="0.68">
+            <path d="M36 104 L34 116" /><path d="M52 104 L54 116" />
+          </g>
         </g>
       );
-    default:
-      return null;
+    case 'a3': // rooster, in profile
+      return (
+        <g>
+          <g fill={GREEN}>
+            <path d="M32 86 Q8 76 4 46 Q22 62 34 68 Q16 48 20 22 Q36 50 44 66 Z" />
+          </g>
+          <g fill={RED}>
+            <path d="M40 118 Q22 102 30 76 Q38 56 58 54 Q76 58 78 80 Q78 104 64 118 Z" />
+            <circle cx="60" cy="46" r="14" />
+            <path d="M52 30 q4 -11 9 -5 q3 -11 9 -3 q5 -9 10 1 q-11 5 -20 7 q-5 1 -8 2 Z" />
+            <path d="M73 42 L89 40 L74 50 Z" />
+            <path d="M65 56 Q70 68 63 72 Q59 62 61 55 Z" />
+          </g>
+          <circle cx="62" cy="45" r="2.6" fill="var(--tile-face)" />
+          <g stroke={RED} strokeWidth="4" strokeLinecap="round">
+            <path d="M46 118 L42 132" /><path d="M58 118 L62 132" />
+          </g>
+        </g>
+      );
+    default: // a4 — centipede, curving down the tile
+      return (
+        <g>
+          <g stroke={GREEN} strokeWidth="3" strokeLinecap="round">
+            {CENTIPEDE_SEGMENTS.map(([x, y], i) => (
+              <line key={i} x1={x - 13} y1={y} x2={x + 13} y2={y} />
+            ))}
+          </g>
+          <g fill={GREEN}>
+            {CENTIPEDE_SEGMENTS.map(([x, y], i) => (
+              <circle key={i} cx={x} cy={y} r={i === 0 ? 11 : 8.5} />
+            ))}
+          </g>
+          <g stroke={GREEN} strokeWidth="2.5" strokeLinecap="round">
+            <path d="M28 24 L16 12" /><path d="M34 22 L33 8" />
+          </g>
+          <circle cx="33" cy="31" r="2" fill="var(--tile-face)" />
+        </g>
+      );
   }
 }
 
@@ -211,7 +252,7 @@ export default function TileFace({ tile }) {
 
       {spec.kind === 'bonus' && (
         <>
-          <Motif motif={spec.motif} />
+          <Flower petal={spec.petal} />
           <CornerIndex text={spec.index} />
           <text x="50" y="134" textAnchor="middle" fontSize="15" fontWeight="700" fill={INK}
             opacity="0.7" fontFamily="Helvetica Neue, Arial, sans-serif">{spec.label}</text>
@@ -220,7 +261,7 @@ export default function TileFace({ tile }) {
 
       {spec.kind === 'animal' && (
         <>
-          <text {...CENTRE_TEXT} x="50" y="90" fontSize="60" fill={GREEN}>{spec.glyph}</text>
+          <Animal id={spec.animal} />
           <CornerIndex text={spec.index} />
         </>
       )}
