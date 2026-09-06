@@ -2430,3 +2430,37 @@ Deploy + `VITE_COACH_ANSWER_URL` needed to make it live.
 can be validated against typed data, facts filtered by question, and the same evidence back a
 future LangGraph tool — English becomes a prompt-time rendering only. Noted in `docs/mvp-notes.md`
 #7 and `agents/README.md`.
+
+### Comment 3 — structured typed facts (PR after #26)
+
+- [x] `coachContext()` returns `{ id, type, ...data }[]` — types `rules` / `seat` / `wall` /
+      `distance` / `waits` / `discardPick` / `claimOption` / `handValue`, each holding the raw
+      values (tai/points/tile ids/shanten/rule keys/verdict). No `text` field on the fact.
+      (`discardPick` folds in what was a separate `alternatives` fact.)
+- [x] `renderFact(f)` (also in `coachContext.js`, exported) — the inverse: one typed fact → one
+      beginner sentence. `buildUserPrompt` calls it; prompt output is byte-identical to before.
+- [x] `agents/src/index.js` exports `renderFact`; `agents/types/index.d.ts` `CoachFact` is now a
+      discriminated union + `renderFact` decl.
+- [x] Tests: assert fact `id`/`type`/fields directly (no string matching); every emitted type
+      must `renderFact` to a non-empty string; prompt has no `undefined` / `[object Object]`.
+- [x] frontend/backend untouched.
+
+### Comment 3, part 2 — question filtering + field-level grounding (same PR #29)
+
+- [x] `relevantFacts(facts, question)` (in `coachContext.js`, exported) — core facts (rules /
+      seat / wall / distance / waits) always kept; situational facts (discardPick / claimOption /
+      handValue) narrowed by question keywords, with a floor: if none clearly match, keep all
+      (this agent runs on unplaceable questions — dropping a needed fact is the worse failure).
+      Ids are never renumbered. `buildUserPrompt` now takes the narrowed array.
+- [x] `runCoachAnswer` uses the narrowed set for BOTH the prompt and the ref-existence check, so
+      a line citing a filtered-out fact is dropped. Added a second grounding check:
+      `namesUnsupportedPattern` — a line naming `half/full flush` / `all pungs` / `all chows`
+      when that rule key isn't active (from the `rules` fact's new `keys` field) drops the reply.
+      Single-word patterns ("dragon", "flower") left out — they collide with tile names.
+- [x] `rules` fact gains `keys: string[]`; `agents/src/index.js` + `.d.ts` export `relevantFacts`.
+- [x] Tests (+5): relevantFacts narrows/keeps-all/keeps-ids; cite-a-filtered-fact → drop;
+      unsupported-pattern → drop; supported-pattern → fine; rules fact carries keys.
+- [x] agents 45/45, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+Still open (mvp-notes #7): field-level *number* checks — a line can cite a real fact and still
+misstate its tai/points/tile count. Mechanical now that facts are typed; not done here.

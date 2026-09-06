@@ -5,13 +5,23 @@ How AI agents plug into Kaki Mahjong. Two agents are built today — the post-ha
 sized so the next (a thinking-bot opponent) drops in without a rewrite.
 
 The Coach agent bends one rule the Review agent keeps: it is allowed to *write* the answer, not
-just phrase graded facts. It is still fenced — `coachContext.js` builds the position facts
-deterministically from `advisor.js` against the table's house rules and ids each (`f0`, `f1`, …);
-the reply must be `{ answer: [{ refs, text }] }` and every line must cite fact ids that
-`runCoachAnswer()` can resolve, or the whole reply is dropped for a fixed deterministic answer
-(the frontend's own local coach is the real offline floor). The grounding is existence-level for
-now — see `docs/mvp-notes.md` #7 for the two follow-ups (structured typed facts; rule-set checks
-on scoring claims).
+just phrase graded facts. It is still fenced:
+
+- `coachContext.js` builds the position evidence deterministically from `advisor.js` against the
+  table's house rules as structured typed facts (`{ id, type, ...data }`, ids `f0`, `f1`, …).
+  `renderFact()` turns each into the sentence the prompt shows, so wording is a prompt concern,
+  not part of what an answer may cite.
+- `relevantFacts(facts, question)` narrows the situational facts to what the question is about;
+  core facts (rules / seat / wall / distance / waits) are always kept.
+- the reply must be `{ answer: [{ refs, text }] }`; `runCoachAnswer()` drops it unless every
+  cited id was in the (narrowed) prompt **and** no line names a scoring pattern the table does
+  not play (checked against the rules fact's `keys`, not the prose).
+- any failure → a fixed deterministic answer (the frontend's own local coach is the real
+  offline floor).
+
+Grounding is existence + scoring-pattern level, not full entailment — a line can still misstate a
+tai/point/tile *number* from a fact it correctly cites. The typed facts make that check
+mechanical; see `docs/mvp-notes.md` #7.
 
 ## The shape every agent has
 

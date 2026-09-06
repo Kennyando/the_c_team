@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 
 import { runCoachAnswer } from '../src/coach/coachAnswer.js';
-import { coachContext } from '../src/context/coachContext.js';
+import { coachContext, renderFact, relevantFacts } from '../src/context/coachContext.js';
 
 // --- fixtures -------------------------------------------------------------------------------
 
@@ -78,6 +78,8 @@ test('the model prompt lists the facts by id and asks for citations', async () =
   assert.match(userPrompt, /cite these by id/);
   assert.match(userPrompt, /^f0: /m);
   assert.match(userPrompt, /QUESTION: am I close\?/);
+  // Every fact rendered to a real sentence — no `undefined` / `[object Object]` from a missed type.
+  assert.doesNotMatch(userPrompt, /undefined|\[object Object\]/);
 });
 
 test('a reply wrapped in a ```json fence is still parsed and used', async () => {
@@ -105,6 +107,29 @@ test('one grounded line and one ungrounded line drops the whole reply', async ()
   });
   const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
   assert.equal(result.modelAssisted, false);
+});
+
+test('citing a fact the question filtered out of the prompt drops the reply', async () => {
+  // "what should I discard" keeps the discardPick fact (f5) and drops the handValue fact (f6),
+  // so a line citing f6 is citing something the model was never shown.
+  mockReply({ answer: [{ refs: ['f6'], text: 'This hand is worth a lot.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'what should I discard here' });
+  assert.equal(result.modelAssisted, false);
+});
+
+// --- grounding: no unsupported scoring pattern --------------------------------------------------
+
+test('a line naming a scoring pattern this table does not play drops the reply', async () => {
+  // POSITION plays dragonPong + halfFlush, NOT fullFlush.
+  mockReply({ answer: [{ refs: ['f3'], text: 'You could push for a full flush from here.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('a line naming a pattern the table does play is fine', async () => {
+  mockReply({ answer: [{ refs: ['f0'], text: 'A half flush is on the table here, worth chasing.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, true);
 });
 
 // --- bad output -> deterministic fallback -----------------------------------------------------
@@ -157,31 +182,81 @@ test('a malformed position does not throw — it still answers', async () => {
   assert.ok(result.lines.length > 0);
 });
 
-// --- coachContext: every legal claim, not just the first ------------------------------------
+// --- coachContext: structured facts --------------------------------------------------------
 
-test('coachContext emits one fact per claim option, each with an id', () => {
+test('facts are structured objects (id + type + data), not English strings, and every type renders', () => {
+  const { facts } = coachContext(POSITION);
+  assert.deepEqual(
+    facts.map((f) => f.id),
+    facts.map((_, i) => `f${i}`),
+  );
+  for (const f of facts) {
+    assert.equal(typeof f.type, 'string');
+    assert.equal(f.text, undefined, `fact ${f.id} should carry structured data, not a text string`);
+    assert.ok(renderFact(f).length > 0, `renderFact has no case for ${f.type}`);
+  }
+  // Spot-check a couple of payloads by field, no string matching.
+  const distance = facts.find((f) => f.type === 'distance');
+  assert.equal(distance.shanten, 0); // POSITION is a ready hand
+  const rules = facts.find((f) => f.type === 'rules');
+  assert.ok(Array.isArray(rules.active) && typeof rules.limit === 'number');
+});
+
+test('coachContext emits one structured fact per claim option', () => {
   const claimPosition = {
     ...POSITION,
     hand: ['b3', 'b4', 'b6', 'b7', 'c1', 'c2', 'c3', 'd4', 'd5', 'd6', 'we', 'we', 'ws'],
     phase: 'claim',
     turn: 2,
     pending: { tile: 'b5', by: 1 },
-    // Two chow shapes for b5 (b3-b4 and b6-b7), plus a pong the hand can't actually back — the
-    // point is that coachContext surfaces every entry, not that they're all sensible.
+    // Two chow shapes for b5 (b3-b4-b5 and b5-b6-b7).
     claimOptions: [
       { type: 'chow', tiles: ['b3', 'b4', 'b5'], seat: 0 },
       { type: 'chow', tiles: ['b5', 'b6', 'b7'], seat: 0 },
     ],
   };
-  const { facts } = coachContext(claimPosition);
-  const claimFacts = facts.filter((f) => /is on offer/.test(f.text));
-  assert.equal(claimFacts.length, 2, 'both chow options should be represented');
-  // The two shapes are distinguished by their outer tiles (3 Bamboo vs 7 Bamboo).
-  assert.ok(claimFacts.some((f) => /3 Bamboo/.test(f.text)));
-  assert.ok(claimFacts.some((f) => /7 Bamboo/.test(f.text)));
-  // Ids are stable and unique.
+  const claims = coachContext(claimPosition).facts.filter((f) => f.type === 'claimOption');
+  assert.equal(claims.length, 2, 'both chow options should be represented');
+  assert.deepEqual(claims.map((f) => f.tiles).sort(), [
+    ['b3', 'b4', 'b5'],
+    ['b5', 'b6', 'b7'],
+  ]);
+  for (const c of claims) {
+    assert.equal(c.claimType, 'chow');
+    assert.equal(c.onTile, 'b5');
+    assert.ok(['yes', 'no'].includes(c.verdict));
+    assert.equal(typeof c.advice, 'string');
+  }
+});
+
+test('the rules fact carries the active rule keys for scoring-claim checks', () => {
+  const rules = coachContext(POSITION).facts.find((f) => f.type === 'rules');
+  assert.deepEqual(rules.keys.sort(), ['dragonPong', 'halfFlush']);
+});
+
+// --- relevantFacts: narrow the situational facts to the question --------------------------------
+
+test('relevantFacts keeps core facts always and narrows the situational ones by question', () => {
+  const { facts } = coachContext(POSITION); // has discardPick (f5) and handValue (f6)
+  const core = ['rules', 'seat', 'wall', 'distance', 'waits'];
+
+  const forValue = relevantFacts(facts, 'roughly how much is this hand worth');
   assert.deepEqual(
-    facts.map((f) => f.id),
-    facts.map((_, i) => `f${i}`),
+    forValue.map((f) => f.type),
+    [...core, 'handValue'],
   );
+
+  const forDiscard = relevantFacts(facts, 'which tile should I throw');
+  assert.deepEqual(
+    forDiscard.map((f) => f.type),
+    [...core, 'discardPick'],
+  );
+
+  // Nothing situational clearly matches -> keep everything (this agent runs on unplaceable
+  // questions, so dropping a fact we might have needed is the worse failure).
+  const forVague = relevantFacts(facts, 'what is going on');
+  assert.deepEqual(forVague, facts);
+
+  // Ids are never renumbered by filtering.
+  assert.deepEqual(forValue.map((f) => f.id), ['f0', 'f1', 'f2', 'f3', 'f4', 'f6']);
 });
