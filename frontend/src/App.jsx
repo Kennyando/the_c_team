@@ -16,6 +16,7 @@ import ScoreSheet from './components/ScoreSheet.jsx';
 import Settings from './components/Settings.jsx';
 import Coach from './components/Coach.jsx';
 import HandReview from './components/HandReview.jsx';
+import GameReview from './components/GameReview.jsx';
 import Home from './components/Home.jsx';
 import Puzzle from './components/Puzzle.jsx';
 import Rules from './components/Rules.jsx';
@@ -64,6 +65,7 @@ export default function App() {
   const [state, setState] = useState(() => newGame(DEFAULT_RULES, 0));
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showReview, setShowReview] = useState(false);
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -132,6 +134,7 @@ export default function App() {
   const newHand = () => {
     setConfirm(null);
     setShowSettings(false);
+    setShowReview(false);
     setState((s) => newGame(rules, (s.dealer + 1) % 4, s.players.map((p) => p.points)));
   };
 
@@ -166,7 +169,15 @@ export default function App() {
       {screen === 'puzzle' && <Puzzle />}
       {screen === 'rules' && <Rules />}
 
-      {screen === 'play' && (
+      {screen === 'play' && showReview && (
+        <GameReview
+          decisions={state.decisions}
+          onExit={() => setShowReview(false)}
+          onNewHand={newHand}
+        />
+      )}
+
+      {screen === 'play' && !showReview && (
         <>
           <main className={`table view-${display.tableView}`}>
             <div className="log" aria-live="polite">{state.log.at(-1)}</div>
@@ -224,6 +235,13 @@ export default function App() {
           {state.phase === 'over' && !showSettings && (
             <ScoreSheet result={state.result} players={state.players} onNewHand={newHand}>
               <HandReview decisions={state.decisions} rules={state.rules} voice={display.voice} />
+              {state.decisions.length > 0 && (
+                <div className="row">
+                  <button type="button" onClick={() => setShowReview(true)}>
+                    Step through the hand
+                  </button>
+                </div>
+              )}
             </ScoreSheet>
           )}
         </>

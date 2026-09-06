@@ -2650,3 +2650,41 @@ review agent later if a check is wanted.
 
 **Deploy is still yours:** `cd backend && npx cdk deploy` picks up the new default. Nothing is
 live until then.
+
+---
+
+# Step-through hand review (chess.com-style)
+
+The end-of-hand review was a flat text list. Added a full-screen "Step through the hand" that
+puts the board back to each decision and navigates between them.
+
+- [x] `engine.js` — `boardSnapshot(state)` helper; `recordDiscardDecision` / `recordClaimDecision`
+      each attach `snapshot` (your tiles + every seat's melds/bonus + the discard river + wall
+      count + winds). Plain values, clone-safe. Discard snapshot = the table as you saw it
+      *before* the throw; claim snapshot = *after*, with the offered tile on the river.
+- [x] `review.js` — `postHandReview` strips `snapshot` before the POST (frontend-only field;
+      ~10x body otherwise). Local `assembleReview` never reads it.
+- [x] `components/GameReview.jsx` (new) — modeled on `Puzzle.jsx`. `toTableState(snapshot)` ->
+      the live `<Table>` (flat, in a bounded `.review-board` box). Move list of every decision
+      (✓ / ✕, misses in red, current highlighted, click to jump); Prev / Next / Next mistake;
+      opens on the first miss. The better tile is hidden until "Show the coach's move" (the
+      `reviewCore` sentence names it, so it stays hidden on a miss until asked; the green board
+      marker reveals with it). Read-only — Retry is a follow-up.
+- [x] `App.jsx` — `showReview` state; "Step through the hand" button under the ScoreSheet review;
+      when `showReview` the play screen swaps GameReview in place of the live table (not an
+      overlay). `newHand()` clears it. Game loop already frozen at `phase === 'over'`.
+- [x] `styles.css` — `.game-review` (full-screen like `.puzzle-screen`), `.review-board`
+      (bounded + flat), `.review-move[.miss|.current]`, `.review-tile` / `.review-mark.you|.coach`
+      (ring + a "You"/"Coach" tag, so it reads without colour), contrast-theme overrides.
+- [x] Tests: `engine.test.js` (+2, snapshot shape on discard & claim); `review.test.js` (+1,
+      POST strips snapshot); `GameReview.test.jsx` (new, 6 — opens on first miss, board renders,
+      coach hidden then shown, move-list jump resets reveal, Prev/Next/Next-mistake + disabled
+      ends, claim decision, footer callbacks). frontend 111/111 node + 19/19 component, build OK.
+- [ ] Manual: play a hand to the end, click "Step through the hand" — eyeball the flat board +
+      markers + move list layout, and the high-contrast theme.
+
+## Follow-ups (not in this change)
+- Retry a discard on the frozen position (`checkDiscardAnswer` exists).
+- Deep-link each "Next time" bullet to open GameReview at that decision (needs `fact.index`
+  through `assembleReview`).
+- Full move-by-move scrubbing (needs a seeded RNG + move log).

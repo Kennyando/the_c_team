@@ -574,6 +574,73 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .hand-review li { margin: 4px 0; }
 .review-one-thing { margin: 12px 0 0; }
 
+/* ---------- step-through hand review ---------- */
+
+.game-review {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+.game-review h2 { margin: 0; }
+.review-caption { margin-top: 10px; }
+.review-caption p { margin: 4px 0; }
+
+/* The frozen board sits flat (no 3D tilt) and in its own bounded box, so a long move list below
+   it never gets shoved under the table or the topbar. */
+.review-board {
+  flex: none;
+  max-height: 42vh;
+  overflow: hidden;
+  border: 2px solid var(--panel-edge);
+  border-radius: 12px;
+}
+
+/* the move list: a wrapping grid of every decision this hand, in its own scroll area */
+.review-move-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 22vh;
+  overflow-y: auto;
+}
+.review-move {
+  font-weight: 700;
+  font-size: calc(14px * var(--tile-scale));
+}
+.review-move.miss { border-color: var(--accent); color: var(--accent); }
+.review-move.current {
+  background: var(--ink);
+  color: var(--panel);
+  border-color: var(--ink);
+}
+.review-move.miss.current { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+[data-theme='contrast'] .review-move.current { background: #000; color: #ff0; border-color: #ff0; }
+
+/* one hand tile in the review, with an optional "You" / "Coach" tag beneath it */
+.review-tile { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.review-mark.you .tile { box-shadow: 0 0 0 4px var(--accent); }
+.review-mark.coach .tile { box-shadow: 0 0 0 4px #2f7d5b; }
+.review-mark-tag {
+  font-size: calc(12px * var(--tile-scale));
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: #fff;
+}
+.review-mark.you .review-mark-tag { background: var(--accent); }
+.review-mark.coach .review-mark-tag { background: #2f7d5b; }
+[data-theme='contrast'] .review-mark .tile { box-shadow: 0 0 0 4px #000; border-color: #000; }
+[data-theme='contrast'] .review-mark-tag { background: #000; color: #ff0; }
+
 /* ---------- narration log ---------- */
 
 .log {

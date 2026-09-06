@@ -243,6 +243,46 @@ test('every recorded decision is stamped with the advisor version that graded it
   assert.equal(state.decisions.at(-1).advisorVersion, ADVISOR_VERSION);
 });
 
+test('a discard decision snapshots the board as it was when the tile was chosen', () => {
+  const state = newGame(rules, 0);
+  state.players[0].hand = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we', 'b9'];
+  state.discards = [{ tile: 'ws', by: 1 }, { tile: 'dw', by: 2 }];
+
+  discardTile(state, 'b9');
+
+  const { snapshot } = state.decisions.at(-1);
+  assert.ok(snapshot, 'the decision carries a board snapshot');
+  assert.equal(snapshot.players.length, 4);
+  // your own tiles, still 14 and still including the tile you were about to throw
+  assert.ok(Array.isArray(snapshot.players[0].hand));
+  assert.equal(snapshot.players[0].hand.length, 14);
+  assert.ok(snapshot.players[0].hand.includes('b9'));
+  // opponents kept as a count, not their concealed tiles
+  assert.equal(typeof snapshot.players[1].hand, 'number');
+  // the river as it looked *before* this discard
+  assert.deepEqual(snapshot.discards, [{ tile: 'ws', by: 1 }, { tile: 'dw', by: 2 }]);
+  assert.equal(typeof snapshot.wallCount, 'number');
+  assert.equal(typeof snapshot.dealer, 'number');
+  assert.equal(typeof snapshot.turn, 'number');
+});
+
+test('a claim decision snapshots the board with the offered tile on the table', () => {
+  const state = newGame(rules, 0);
+  state.players[0].hand = ['d1', 'd2', 'd3', 'b1', 'b2', 'b3', 'c1', 'c2', 'c3', 'wn', 'wn', 'we', 'ws'];
+  state.players[1].hand = ['wn', ...Array(12).fill('d9')];
+  state.turn = 1;
+  state.phase = 'act';
+
+  discardTile(state, 'wn'); // offers the human a pong
+  resolveClaims(state, null); // the human passes -> a 'claim' decision is recorded
+
+  const { snapshot } = state.decisions.at(-1);
+  assert.ok(snapshot);
+  assert.ok(Array.isArray(snapshot.players[0].hand), "the human's hand, which the claim fields don't carry");
+  // the discarded tile that's being claimed is already on the river
+  assert.equal(snapshot.discards.at(-1).tile, 'wn');
+});
+
 test('a discard records an optimal decision when the human discards the recommended tile', () => {
   const state = newGame(rules, 0);
   // Same hand as advisor.test's "bestDiscard picks the dead tile": b9 touches nothing and is the
