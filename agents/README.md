@@ -80,7 +80,7 @@ var:
 
 | Var | Default | Notes |
 |---|---|---|
-| `AGENT_MODEL_ID` | `us.amazon.nova-lite-v1:0` (US cross-region inference profile) | Chosen over Micro after a comparison run: Micro contradicts itself and an 8B model inverts the graded facts; Lite stays coherent, still cents per thousand reviews. Match the prefix to the region (`us.` / `eu.` / `apac.`). Override for a smaller/bigger model as needed. |
+| `AGENT_MODEL_ID` | `us.amazon.nova-2-lite-v1:0` (US cross-region inference profile) | Micro contradicts itself and an 8B model inverts the graded facts; a `bench/` run of the coach agent then moved the default from Nova Lite up to Nova 2 Lite (same JSON reliability, tighter answers). Still cents per thousand calls. Match the prefix to the region (`us.` / `eu.` / `apac.`). Override as needed. |
 | `BEDROCK_REGION` / `AWS_REGION` | — | region for the Bedrock client |
 
 `callModel()` uses a low temperature and a tight `maxTokens`, does not retry, and does not fan

@@ -20,9 +20,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MODELS = (process.env.MODELS
   ? process.env.MODELS.split(',').map((s) => s.trim()).filter(Boolean)
   : [
-      'us.amazon.nova-lite-v1:0', // current default (baseline)
+      'us.amazon.nova-2-lite-v1:0', // current default
+      'us.amazon.nova-lite-v1:0', // previous default, kept as a baseline
       'us.amazon.nova-pro-v1:0',
-      'us.amazon.nova-2-lite-v1:0',
     ]);
 
 const pct = (n, d) => (d ? `${Math.round((100 * n) / d)}%` : '—');

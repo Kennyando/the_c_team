@@ -11,11 +11,13 @@
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 
 // AGENT_MODEL_ID is the knob for this package; it falls back to the US cross-region inference
-// profile for Amazon Nova Lite — a model-comparison run found Micro contradicts itself and an 8B
-// model inverts the graded facts, while Lite stays coherent (still cents per thousand reviews).
-// In the deployed Lambda the CDK stack always sets AGENT_MODEL_ID; this fallback is for local
-// runs, and its profile prefix (us./eu./apac.) has to match the region.
-export const MODEL_ID = process.env.AGENT_MODEL_ID || 'us.amazon.nova-lite-v1:0';
+// profile for Amazon Nova 2 Lite. An earlier comparison ruled out Micro (contradicts itself) and
+// an 8B model (inverts the graded facts); a later `bench/` run of the coach agent moved the
+// default from Nova Lite to Nova 2 Lite — same JSON reliability, tighter answers, slightly fewer
+// tokens, and it uses the per-claim-option facts. Still cents per thousand calls. In the deployed
+// Lambda the CDK stack always sets AGENT_MODEL_ID; this fallback is for local runs, and its
+// profile prefix (us./eu./apac.) has to match the region.
+export const MODEL_ID = process.env.AGENT_MODEL_ID || 'us.amazon.nova-2-lite-v1:0';
 
 const client = new BedrockRuntimeClient({
   region: process.env.BEDROCK_REGION || process.env.AWS_REGION,
