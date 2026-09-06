@@ -1,0 +1,79 @@
+// Coach-agent model comparison. Runs the fixed question set in bench/cases.mjs through the real
+// runCoachAnswer() grounding pipeline against each candidate model and prints a comparison table.
+//
+//   cd agents && BEDROCK_REGION=us-east-1 npm run bench:coach
+//
+// Decision support only — it changes no config. It hits real Bedrock (~1 call per case per
+// model, cents total) and needs AWS credentials plus a region where every candidate below is
+// enabled for the account. Nothing here runs in `npm test`.
+
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// Verify the exact ids and their regional availability in the Bedrock console before trusting a
+// run — Nova 2 naming / inference-profile prefix in particular. Override with MODELS="a,b,c".
+// Nova 2 Pro is Preview: its id may be dated (e.g. ...nova-2-pro-preview-<yyyymmdd>-v1:0) and
+// access can be gated (Nova Forge) — confirm the id in the console, then add it via MODELS=.
+const MODELS = (process.env.MODELS
+  ? process.env.MODELS.split(',').map((s) => s.trim()).filter(Boolean)
+  : [
+      'us.amazon.nova-lite-v1:0', // current default (baseline)
+      'us.amazon.nova-pro-v1:0',
+      'us.amazon.nova-2-lite-v1:0',
+    ]);
+
+const pct = (n, d) => (d ? `${Math.round((100 * n) / d)}%` : '—');
+const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+
+const rows = [];
+for (const model of MODELS) {
+  process.stderr.write(`\n=== ${model} ===\n`);
+  const res = spawnSync(process.execPath, [join(HERE, 'coachModels.mjs')], {
+    cwd: join(HERE, '..'),
+    env: { ...process.env, AGENT_MODEL_ID: model },
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (res.status !== 0) {
+    process.stderr.write((res.stderr || 'child exited non-zero') + '\n');
+    rows.push({ model, harnessError: true });
+    continue;
+  }
+
+  const cases = res.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l))
+    .filter((o) => o.type === 'case');
+
+  const n = cases.length;
+  rows.push({
+    model,
+    n,
+    jsonValid: pct(cases.filter((c) => c.jsonParsed && c.shapeOk).length, n),
+    modelAssisted: pct(cases.filter((c) => c.modelAssisted).length, n),
+    grounding: cases.filter((c) => c.groundingRejected).length,
+    nonJson: cases.filter((c) => !c.bedrockError && !c.jsonParsed).length,
+    bedrock: cases.filter((c) => c.bedrockError).length,
+    truncated: cases.filter((c) => c.truncated).length,
+    avgMs: avg(cases.filter((c) => c.ms != null).map((c) => c.ms)),
+    avgOut: avg(cases.filter((c) => c.outTokens != null).map((c) => c.outTokens)),
+  });
+}
+
+const H = ['model', 'n', 'JSON-valid', 'modelAssisted', 'grounding-rej', 'non-JSON', 'bedrock-err', 'truncated', 'avg ms', 'avg out-tok'];
+const line = (cells) => `| ${cells.join(' | ')} |`;
+console.log('\n' + line(H));
+console.log(line(H.map(() => '---')));
+for (const r of rows) {
+  if (r.harnessError) {
+    console.log(line([r.model, 'HARNESS ERROR — see stderr', '', '', '', '', '', '', '', '']));
+    continue;
+  }
+  console.log(line([r.model, r.n, r.jsonValid, r.modelAssisted, r.grounding, r.nonJson, r.bedrock, r.truncated, r.avgMs ?? '—', r.avgOut ?? '—']));
+}
+console.log('\nRaw replies per model: agents/bench/out/<model>.json — read the kept replies for');
+console.log('tone and the rejected ones to confirm each guardrail fired for a real reason.');

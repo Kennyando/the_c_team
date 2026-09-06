@@ -14,15 +14,18 @@ just phrase graded facts. It is still fenced:
 - `relevantFacts(facts, question)` narrows the situational facts to what the question is about;
   core facts (rules / seat / wall / distance / waits) are always kept.
 - the reply must be `{ answer: [{ refs, text }] }`; `runCoachAnswer()` drops it unless every
-  cited id was in the (narrowed) prompt, no line names a scoring pattern the table does not play
-  (checked against the rules fact's `keys`, not the prose), and no line states a tai / point /
-  wall-count number a cited fact contradicts (a number is only checked if nothing in its own
-  clause hedges it or ties it to the table limit).
+  cited id was in the (narrowed) prompt, and no line: asserts a scoring pattern the table does
+  not play (rules fact's `keys`, not the prose); states a tai / point / wall-count number a cited
+  fact contradicts; treats a non–Singapore concept (riichi, dora, furiten, …) as applicable; or
+  claims to know an opponent's concealed tiles. Each of those is scoped to the phrase's own
+  clause and skips a clause that hedges or dismisses it ("no, that isn't a rule here").
 - any failure → a fixed deterministic answer (the frontend's own local coach is the real
   offline floor).
 
-Grounding is existence + rule-set + pinned-number level, not full entailment — a line that
-*reasons about* the facts is taken on trust. See `docs/mvp-notes.md` #7.
+Grounding is existence + rule-set + pinned-number + out-of-scope level, not full entailment — a
+line that *reasons about* the facts is taken on trust. See `docs/mvp-notes.md` #7. The
+`bench/` harness (`npm run bench:coach`, opt-in, real Bedrock) runs a fixed question set —
+weighted toward these adversarial cases — through the whole pipeline to compare candidate models.
 
 ## The shape every agent has
 
