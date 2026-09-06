@@ -11,14 +11,14 @@ import { PUZZLE_LIBRARY } from '../src/game/puzzleLibrary.js';
 import { checkDiscardAnswer } from '../src/game/puzzles.js';
 import { tileName } from '../src/game/tiles.js';
 
-test('the picker shows 3 puzzles per tier, and switches tiers with the tabs', () => {
+test('the picker shows one button per puzzle in the tier, and switches tiers with the tabs', () => {
   render(<Puzzle />);
   expect(screen.getByRole('tab', { name: 'Easy', selected: true })).toBeTruthy();
-  expect(screen.getAllByRole('button', { name: /^Puzzle \d$/ })).toHaveLength(3);
+  expect(screen.getAllByRole('button', { name: /^Puzzle \d$/ })).toHaveLength(PUZZLE_LIBRARY.easy.length);
 
   fireEvent.click(screen.getByRole('tab', { name: 'Hard' }));
   expect(screen.getByRole('tab', { name: 'Hard', selected: true })).toBeTruthy();
-  expect(screen.getAllByRole('button', { name: /^Puzzle \d$/ })).toHaveLength(3);
+  expect(screen.getAllByRole('button', { name: /^Puzzle \d$/ })).toHaveLength(PUZZLE_LIBRARY.hard.length);
 });
 
 test('opening a puzzle shows the opponents, the curated discards, and every hand tile', () => {

@@ -324,9 +324,10 @@ These are deliberate MVP boundaries, not defects:
     evidence is direct, not theoretical: `tieCount` thresholds have now been recalibrated three
     times in this project's history (once for the original metric, once when value-awareness
     landed, once when ukeire landed), each recalibration was needed purely because the evaluator got
-    better at distinguishing candidates, and the third one alone flipped 8 of the 9 curated puzzles'
-    difficulty labels and left 53% of random hands with a *uniquely* best tile — none of which
-    implies the underlying positions got easier or harder for an actual player to reason about.
+    better at distinguishing candidates, and the third one alone flipped 8 of the (then 9, now 15)
+    curated puzzles' difficulty labels and left 53% of random hands with a *uniquely* best tile —
+    none of which implies the underlying positions got easier or harder for an actual player to
+    reason about.
 
     Two directions were considered for a more stable difficulty signal, deliberately not built yet:
     - **Score margin / candidate ambiguity** — the gap between the best candidate's `blended` score
