@@ -19,10 +19,13 @@ export const MAX_REVIEW_BULLETS = 4;
 const nameOf = (t) => (typeof t === 'string' && t.length > 0 && t.length <= 3 ? tileName(t) : 'a tile');
 const claimType = (c) => (c && typeof c.type === 'string' ? c.type : null);
 
+const factId = (index) => `d${index}`;
+
 function discardFact(d, index) {
+  const id = factId(index);
   const chosen = nameOf(d.chosen);
   if (d.optimal === true) {
-    return { index, type: 'discard', wasOptimal: true, text: `Discarded ${chosen} — the tile the coach would have picked.` };
+    return { id, index, type: 'discard', wasOptimal: true, text: `Discarded ${chosen} — the tile the coach would have picked.` };
   }
   const better = nameOf(d.recommended);
   const cmp =
@@ -32,27 +35,32 @@ function discardFact(d, index) {
       ? ` It left you ${describeDistance(d.shantenAfterChosen)}; ${better} would have left you ${describeDistance(d.shantenAfterRecommended)}.`
       : '';
   const why = Array.isArray(d.reasons) && typeof d.reasons[0] === 'string' ? ` ${d.reasons[0]}` : '';
-  return { index, type: 'discard', wasOptimal: false, text: `Discarded ${chosen}; ${better} was the stronger discard.${cmp}${why}` };
+  return { id, index, type: 'discard', wasOptimal: false, text: `Discarded ${chosen}; ${better} was the stronger discard.${cmp}${why}` };
 }
 
 function claimFact(c, index) {
+  const id = factId(index);
   const tile = nameOf(c.pendingTile);
   const took = claimType(c.chosen);
   const wanted = claimType(c.recommended);
   if (c.optimal === true) {
-    return { index, type: 'claim', wasOptimal: true, text: took ? `Called ${took} on ${tile} — the right call.` : `Let ${tile} go — the right call.` };
+    return { id, index, type: 'claim', wasOptimal: true, text: took ? `Called ${took} on ${tile} — the right call.` : `Let ${tile} go — the right call.` };
   }
-  if (took && !wanted) return { index, type: 'claim', wasOptimal: false, text: `Called ${took} on ${tile}, but passing was better — it did not bring your hand closer.` };
-  if (!took && wanted) return { index, type: 'claim', wasOptimal: false, text: `Passed on ${tile}; calling ${wanted} would have moved your hand forward.` };
-  return { index, type: 'claim', wasOptimal: false, text: `The call on ${tile} could have gone better.` };
+  if (took && !wanted) return { id, index, type: 'claim', wasOptimal: false, text: `Called ${took} on ${tile}, but passing was better — it did not bring your hand closer.` };
+  if (!took && wanted) return { id, index, type: 'claim', wasOptimal: false, text: `Passed on ${tile}; calling ${wanted} would have moved your hand forward.` };
+  return { id, index, type: 'claim', wasOptimal: false, text: `The call on ${tile} could have gone better.` };
 }
 
 /**
  * Restate `state.decisions` as plain-English facts. Input is untrusted (it arrives over HTTP on
  * the backend), so non-object / unknown-type entries are dropped rather than trusted.
  *
+ * Each fact carries a stable `id` (`d<index>` — its position in `state.decisions`) so a consumer
+ * that grades the review against it (the backend agent's per-item grounding) can cite exactly
+ * which decision a bullet is about.
+ *
  * @returns {{ total:number, optimalCount:number, discardCount:number, claimCount:number,
- *            facts:Array<{index:number,type:'discard'|'claim',wasOptimal:boolean,text:string}>,
+ *            facts:Array<{id:string,index:number,type:'discard'|'claim',wasOptimal:boolean,text:string}>,
  *            mistakes:Array }}
  */
 export function decisionFacts(decisions) {

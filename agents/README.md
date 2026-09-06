@@ -14,18 +14,18 @@ deterministic context  ─►  one model call  ─►  parse + strict validate  
 
 1. **Context builders** (`src/context/`) run first. They are pure functions over game data — no
    model, no judgement of their own. For Review they restate `state.decisions`, which the engine
-   already graded against `advisor.js` when each move was made. The restatement itself lives in
-   `frontend/src/game/reviewCore.js` and is re-exported here through `@kaki/game`, so the
-   frontend's offline review and this package's fallback build facts from one implementation
-   (pinned by `test/contract.test.js`).
+   already graded against `advisor.js` when each move was made. Each fact carries a stable id
+   (`d0`, `d1`, …). The restatement lives in `frontend/src/game/reviewCore.js` and is re-exported
+   here through `@kaki/game`, so the frontend's offline review and this package's fallback build
+   facts from one implementation (pinned by `test/contract.test.js`).
 2. **One model call** (`src/model.js` — the *only* place a model is invoked) turns those facts
-   into warm, plain sentences. It never computes anything; the facts are the analysis. This is
-   the same guarantee `backend/lambda/classifyIntent.ts` gives: the model never writes the
-   authoritative content.
-3. **Validate** against `src/schema.js` (shape), then against the facts (grounding): a reply that
-   lists more "improve" notes than there were sub-optimal moves, or more "well played" notes than
-   there were optimal ones, isn't grounded in the decision log and is discarded. Anything that
-   doesn't fit — wrong type, too long, ungrounded, model errored, no model configured — falls to:
+   into warm, plain sentences. It is required to return each bullet as `{ ref, text }` — `ref`
+   naming the fact the bullet is about. It never computes anything; the facts are the analysis.
+3. **Validate** — shape (`src/schema.js`: is it `{ ref, text }` bullets, within length caps?),
+   then **per-item grounding** in `runReview()`: for every bullet, `ref` must name a real fact,
+   that fact's own grade must match the bullet's bucket (a "well played" bullet on a decision the
+   engine graded sub-optimal — or the reverse — is not grounded), and no fact may be cited twice.
+   Any bullet that fails, or any shape/parse/model error, falls to:
 4. **Deterministic fallback** (`src/review/deterministic.js` → `assembleReview` from `@kaki/game`)
    assembles the same facts with no model. It is both the offline default and the guaranteed
    floor, so a caller always gets a well-formed result, and it is byte-identical to the frontend's
@@ -86,10 +86,10 @@ output, so the two model-free paths can never drift.
 
 ## Known limits / follow-ups
 
-- **Grounding is count-based, not per-item.** The guard checks the model didn't produce *more*
-  notes than the facts support; it doesn't yet verify each individual note maps to a specific
-  decision whose engine-grade backs that classification. A stronger version would have review
-  items carry a `decisionId` and validate each one against the graded decision it points at.
+- **Grounding refs are validated but not surfaced.** Each model bullet carries a `ref` to the
+  decision it's about and `runReview()` holds it to that decision's grade — but the `ref` is
+  dropped before the result reaches the frontend. Passing it through would let `HandReview.jsx`
+  link a bullet to its tile / turn on the table.
 - **`advisorVersion` is stamped but not yet consumed.** Every decision record now carries
   `advisorVersion` (`ADVISOR_VERSION` in `frontend/src/game/advisor.js`), so a review of stored
   history can tell which grader produced its `optimal`/`recommended` fields. Nothing reads it yet

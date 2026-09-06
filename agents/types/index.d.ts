@@ -27,6 +27,8 @@ export interface RunReviewInput {
 export function runReview(input?: RunReviewInput): Promise<ReviewResult>;
 
 export interface DecisionFact {
+  /** Stable id (`d<index>`) so a grounding check can cite which decision a review bullet is about. */
+  id: string;
   index: number;
   type: "discard" | "claim";
   wasOptimal: boolean;

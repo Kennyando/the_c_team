@@ -6,17 +6,17 @@
 //                                        └────────── deterministicReview ◄─────────┘  (on ANY failure)
 //
 // The model only ever phrases facts our own deterministic code already graded. If there is no
-// model configured, or it errors, or it returns something that doesn't fit schema.js, or it
-// claims more than the facts support, the deterministic review is returned instead — so a caller
-// always gets a well-formed ReviewResult, and the model can never be the source of a claim the
-// engine's own grading doesn't back.
+// model configured, or it errors, or it returns something that doesn't fit schema.js, or any
+// bullet fails per-item grounding (below), the deterministic review is returned instead — so a
+// caller always gets a well-formed ReviewResult, and the model can never be the source of a
+// claim the engine's own grading doesn't back.
 
 import { decisionContext } from '../context/decisionContext.js';
 import { rulesContext } from '../context/rulesContext.js';
 import { callModel, parseJsonObject } from '../model.js';
 import { SYSTEM_PROMPT, buildUserPrompt } from './prompt.js';
 import { deterministicReview } from './deterministic.js';
-import { isReviewResult, normalizeReviewResult } from '../schema.js';
+import { isModelReviewShape, normalizeReviewResult } from '../schema.js';
 
 /**
  * @param {{ decisions?:Array, rules?:Object, useModel?:boolean }} input
@@ -40,14 +40,24 @@ export async function runReview({ decisions, rules, useModel = true } = {}) {
       temperature: 0.2,
     });
     const parsed = parseJsonObject(raw);
-    if (!isReviewResult(parsed)) return fallback();
+    if (!isModelReviewShape(parsed)) return fallback();
 
-    // Grounding guard: the deterministic facts ARE the analysis; the model only phrases them, so
-    // it can never surface more "improve" notes than there were sub-optimal moves, or credit more
-    // "well played" notes than there were optimal ones. A reply that does isn't grounded in the
-    // decision log — discard it and use the deterministic review. (Schema validation checks the
-    // shape; this checks it against the facts it was given.)
-    if (parsed.improvements.length > facts.mistakes.length || parsed.goodMoves.length > facts.optimalCount) {
+    // Per-item grounding — the durable "the model never writes authoritative content" boundary.
+    // Schema validation (above) checked the shape; this checks each bullet against the specific
+    // decision it points at:
+    //   bullet.ref -> a real fact id -> the fact's own grade matches the bullet's bucket
+    // A [good] bullet on a decision the engine graded sub-optimal (or vice versa) is not
+    // grounded; nor is the same decision cited twice (padding). Any failure -> deterministic.
+    const factById = new Map(facts.facts.map((f) => [f.id, f]));
+    const usedRefs = new Set();
+    const allGrounded = (items, wantOptimal) =>
+      items.every((it) => {
+        const fact = factById.get(it.ref);
+        if (!fact || fact.wasOptimal !== wantOptimal || usedRefs.has(it.ref)) return false;
+        usedRefs.add(it.ref);
+        return true;
+      });
+    if (!allGrounded(parsed.goodMoves, true) || !allGrounded(parsed.improvements, false)) {
       return fallback();
     }
 

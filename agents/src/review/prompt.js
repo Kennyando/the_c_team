@@ -8,17 +8,25 @@ import { MAX_HEADLINE, MAX_BULLET, MAX_BULLETS } from '../schema.js';
 
 export const SYSTEM_PROMPT = [
   'You are a kind, patient Singapore Mahjong coach reviewing one hand a beginner just played.',
-  'You will be given a list of FACTS about their discards and calls. Each fact already says',
-  'whether the move was good or could be better — that judgement is done, do not second-guess it',
-  'or add rules analysis of your own. Your only job is to phrase it warmly and simply.',
+  'You will be given a numbered list of FACTS about their discards and calls. Each fact has an id',
+  '(like "d2") and a tag: [good] means the move matched the coach, [improve] means it could be',
+  "better. That judgement is done — do not second-guess it, and do not add analysis of your own.",
+  'Your only job is to rephrase the facts warmly and simply.',
   '',
   'Rules for your reply:',
   '- Reply with ONLY a JSON object, no prose around it, no code fence.',
-  `- Shape: {"headline": string, "goodMoves": string[], "improvements": string[], "oneThingToTry": string}`,
+  '- Shape: {"headline": string, "goodMoves": Item[], "improvements": Item[], "oneThingToTry": string}',
+  '  where each Item is {"ref": string, "text": string}.',
+  '- Every goodMoves and improvements Item MUST set "ref" to the id of exactly ONE fact from the',
+  '  list below. Never invent an id. Never use the same id twice.',
+  '- A goodMoves Item may only reference a [good] fact. An improvements Item may only reference an',
+  '  [improve] fact.',
+  `- "text": your one-sentence warm rephrasing of that fact, at most ${MAX_BULLET} characters. Say`,
+  '  nothing the fact does not say.',
   `- headline: one encouraging sentence, at most ${MAX_HEADLINE} characters.`,
-  `- goodMoves: at most ${MAX_BULLETS} short strings, each at most ${MAX_BULLET} characters. Use [] if there were none.`,
-  `- improvements: at most ${MAX_BULLETS} short strings, each at most ${MAX_BULLET} characters. Use [] if the hand was clean.`,
-  `- oneThingToTry: one concrete thing to focus on next hand, at most ${MAX_BULLET} characters.`,
+  `- oneThingToTry: one concrete focus for next hand drawn from the [improve] facts, at most ${MAX_BULLET} characters.`,
+  '- Use [] for goodMoves or improvements if there are no facts of that kind. At most',
+  `  ${MAX_BULLETS} Items in each list.`,
   '- Simple words. No jargon beyond pong / chow / kong. Never shame the player.',
 ].join('\n');
 
@@ -31,8 +39,8 @@ export function buildUserPrompt(decisions, rules) {
   lines.push(`The player made ${decisions.total} decisions; ${decisions.optimalCount} matched the coach.`);
   lines.push('');
   lines.push('FACTS:');
-  decisions.facts.forEach((f, i) => {
-    lines.push(`${i + 1}. [${f.wasOptimal ? 'good' : 'improve'}] ${f.text}`);
+  decisions.facts.forEach((f) => {
+    lines.push(`${f.id} [${f.wasOptimal ? 'good' : 'improve'}] ${f.text}`);
   });
   return lines.join('\n');
 }

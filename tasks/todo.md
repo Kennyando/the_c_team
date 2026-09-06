@@ -2163,3 +2163,43 @@ doesn't support the good/improve bucket). That's the fix for Lite's generic padd
      cap". Now throws at synth unless the value is a non-negative integer — `0` is the only value
      that omits the cap, deliberately. Verified all six cases: omitted→2, `=5`→5, `=0`→omitted,
      `-1`/`abc`/`1.5`→synth fails with a clear message.
+
+---
+
+# Per-item grounding for the review agent
+
+The PR #11/#15 review's durable-correctness ask, and the fix for the model drift seen in the
+Micro/Lite/Llama comparison (Micro contradicted itself, Lite padded with platitudes, Llama
+inverted facts — all schema-valid). Reviewer's chain:
+`review item → decisionId → verify decision exists → verify its grade supports the item's bucket`
+
+## What changed
+
+- `frontend/src/game/reviewCore.js` — each fact from `decisionFacts()` now carries a stable
+  `id` (`d<index>`, its position in `state.decisions`). `assembleReview` output is unchanged.
+- `agents/src/schema.js` — the model must now return each bullet as `{ ref, text }`, not a bare
+  string. `isModelReviewShape()` replaces `isReviewResult()` (removed — was unused after this).
+  `normalizeReviewResult()` drops the refs and keeps the text for the final `string[]` output
+  (frontend contract unchanged).
+- `agents/src/review/prompt.js` — facts are listed with their ids; the system prompt requires
+  `{ ref, text }` bullets, each `ref` naming exactly one listed fact, a `[good]` fact for a
+  goodMoves bullet / `[improve]` for improvements, no id reused.
+- `agents/src/review/reviewHand.js` — after the shape check, per-item grounding: every bullet's
+  `ref` must resolve to a real fact whose `wasOptimal` matches the bullet's bucket, and no `ref`
+  twice. Any failure → deterministic fallback. The old count-based guard is removed (subsumed).
+- `agents/test/reviewHand.test.js` — reworked: grounded-reply-used, refs-stripped, old
+  bare-string shape rejected, unknown ref → fallback, wrong-bucket ref → fallback (both
+  directions), duplicate ref → fallback, empty lists fine.
+- Docs: `agents/README.md` pipeline + follow-ups, `docs/mvp-notes.md` #9.
+
+Not done (follow-up): surfacing `ref` to `HandReview.jsx` to link a bullet to its tile/turn.
+
+## Verification
+
+- agents 21/21 (7 contract + 3 deterministic + 11 model-path), frontend 102/102 node + 13/13
+  component + build, backend 25/25 + build. `cdk synth` unaffected (no stack change).
+- Local smoke: `decisionFacts()` emits `d0`/`d1`/`d2`; deterministic `runReview` still returns the
+  correct `string[]`-bullet ReviewResult.
+- **Not yet run against live Bedrock** — the deployed Lambda still has the pre-grounding code and
+  old prompt. After merge + redeploy, confirm Nova Lite produces well-grounded `{ref,text}` at an
+  acceptable rate (an ungrounded reply is safe — it just falls back to the deterministic review).
