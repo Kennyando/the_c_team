@@ -26,10 +26,6 @@ export default function Seat({ player, dealer, active, className }) {
           {wind} ({WIND_DISPLAY_NUMBER[windId]}) · {player.points >= 0 ? '+' : ''}{player.points}
         </span>
       </div>
-      {/* The concealed hand, standing with its backs to you. */}
-      <div className="rack" aria-label={`${player.name} holds ${player.hand.length} tiles`}>
-        {player.hand.map((_, i) => <TileBack key={i} />)}
-      </div>
       {(player.melds.length > 0 || player.bonus.length > 0) && (
         <div className="seat-open">
           {player.melds.map((meld, m) => (

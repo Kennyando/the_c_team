@@ -2688,3 +2688,55 @@ puts the board back to each decision and navigates between them.
 - Deep-link each "Next time" bullet to open GameReview at that decision (needs `fact.index`
   through `assembleReview`).
 - Full move-by-move scrubbing (needs a seeded RNG + move log).
+
+---
+
+# Live-game UI polish (batch)
+
+Separate from PR #35. New branch `feature/game-ui-polish` off main.
+
+- [x] **0. Un-break `main` (blocking prerequisite).** PR #34's `5b7ac33` "Merge branch 'main'"
+      was resolved by taking `main`'s `tableLayout.js` + `Seat.jsx` wholesale while keeping the
+      feature branch's `Table.jsx` + `tableLayout.test.js` — so `handRows` (imported + tested)
+      was never in the source, and `Seat.jsx` kept a dead `<TileBack>` block (`TileBack` was
+      removed from `Tile.jsx` on the branch). Clean checkout of `main` failed 1 node + 11
+      component tests. Fix: restore `handRows` to `tableLayout.js` (drop the dead
+      `wallStacks`/`EDGES`, imported nowhere), delete the dead rack block from `Seat.jsx`. Both
+      suites green (111 node, 19 component).
+- [ ] **1. Winning hand — show the whole hand, not just the winning tile.** `ScoreSheet.jsx`
+      already receives `players`; `engine.js` `finishHand` already sets
+      `winner.hand = sortTiles(concealed)` (includes the winning tile). Render
+      `players[result.winnerSeat]`'s concealed tiles + exposed melds + bonus as a tile row, with
+      the winning tile flagged. No engine change. `.confirm-tile` -> a `.winning-hand` row + CSS.
+- [ ] **2. Tile name on hover.** `Tile.jsx` — add `title={tileName(tile)}` to the `<span>` and
+      `<button>`. Native tooltip; `TileBack` stays unlabelled (face-down).
+- [ ] **3. Adaptive default size.** `App.jsx` — initial `display.scale` computed from the
+      viewport (`clamp(0.65, min(vw/1180, vh/760), 1.3)`), re-fit on `resize` until the user
+      drags the size slider (a `scaleAuto` flag; Settings sets it false on change). Slider still
+      works exactly as now once touched.
+- [ ] **4. Wind direction — swap seat positions (confirmed with user).** Play flows
+      counter-clockwise, so seat 1 (next in turn order) belongs on the *right* and seat 3 on the
+      *left*. In `Table.jsx`: `seat-right` <- `players[1]`, `seat-left` <- `players[3]` (was the
+      reverse). Swap `EDGE_SEATS` to `{ far: 2, right: 1, near: 0, left: 3 }` so the felt racks
+      and the discard piles follow. Chow-from-your-left becomes visually true (source seat 3, on
+      the left). `seatWindOf` unchanged — it is a correct standard assignment.
+- [ ] **5. Top log message blocks the top seat.** `styles.css` `.log` — move from top-centre to
+      top-left (`left: 12px; transform: none; text-align: left; max-width: min(58%, 420px)`), so
+      it clears the far seat's name plate.
+- [ ] **6. Vertical racks for the left & right opponents.** Felt racks live in `Table.jsx` as
+      `.rack-edge-left` / `.rack-edge-right` (`.rack-tile` spans). Make those two a vertical
+      column of side-on tiles (each `.rack-tile` portrait-narrow, stacked top-to-bottom),
+      positioned directly above that seat's `.seat-open` melds. `.rack-edge-far` (top) unchanged.
+      Iterate in the browser to line the column up with the melds under it.
+- [ ] **7. Show the discard pile — every discarded tile stays visible.** Today each
+      `.discard-pile` clips after roughly one row (`max-height` + `overflow: hidden`), so once a
+      seat has thrown ~4 tiles the older ones vanish. Let each pile grow (wrap into a tidy grid,
+      no clip) so the whole river is readable for all four seats; keep `.discard-latest`
+      highlighted. Re-check it still fits inside the felt at the default and large tile sizes.
+- [ ] Verify: `npm test` + `npm run test:components` (update component tests for the seat swap /
+      ScoreSheet hand row / discard changes), plus a browser pass — the game, the end-of-hand
+      sheet, high-contrast theme, a narrow viewport. Fold in the PR #35 manual play-through.
+
+## Review
+
+_(to be filled in once the batch is done)_
