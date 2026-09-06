@@ -128,10 +128,18 @@ test('every flower and season has a valid index and label', () => {
   assert.equal(faceSpec('s1').label, 'SEASON');
 });
 
-test('all four Flowers intentionally share one motif; Seasons stay distinct', () => {
-  const flowerMotifs = new Set(FLOWERS.map((t) => faceSpec(t).motif));
-  assert.equal(flowerMotifs.size, 1, 'Flowers should render one uniform design');
+test('every bonus tile is a flower; Flowers are red-petalled, Seasons blue', () => {
+  const motifs = new Set([...FLOWERS, ...SEASONS].map((t) => faceSpec(t).motif));
+  assert.deepEqual([...motifs], ['flower'], 'all bonus tiles share the one flower design');
 
-  const seasonMotifs = new Set(SEASONS.map((t) => faceSpec(t).motif));
-  assert.equal(seasonMotifs.size, 4, 'Seasons should each keep a distinct motif');
+  assert.ok(FLOWERS.every((t) => faceSpec(t).petal === 'red'));
+  assert.ok(SEASONS.every((t) => faceSpec(t).petal === 'blue'));
+});
+
+test('each animal tile carries its own id for the figure renderer', () => {
+  for (const tile of ANIMALS) {
+    const spec = faceSpec(tile);
+    assert.equal(spec.kind, 'animal');
+    assert.equal(spec.animal, tile);
+  }
 });
