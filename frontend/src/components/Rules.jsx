@@ -1,8 +1,22 @@
+import Tile from './Tile.jsx';
+
 /**
  * The Singapore Mahjong rulebook, retyped as text on the page (it used to be an embedded PDF).
  * Branding, contact details and organisation names from the source document have been removed —
  * only the rules themselves are kept.
  */
+
+/** A wrapped row of tile pictures, drawn with the same artwork the game uses. */
+function TileRow({ tiles }) {
+  return (
+    <div className="rules-tiles">
+      {tiles.map((t, i) => <Tile key={`${t}-${i}`} tile={t} />)}
+    </div>
+  );
+}
+
+const RANKS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
 export default function Rules() {
   return (
     <div className="rules-screen">
@@ -269,24 +283,79 @@ export default function Rules() {
           Enjoy every session.
         </p>
 
+        <h2>The Tiles</h2>
+        <p>
+          144 tiles: three numbered suits of 1&ndash;9 (four of each), the four winds, the three
+          dragons, and eight bonus tiles &mdash; plus four optional animal tiles.
+        </p>
+        <div className="tile-chart">
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Dots / Circles</span>
+            <TileRow tiles={RANKS.map((n) => `d${n}`)} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Bamboo</span>
+            <TileRow tiles={RANKS.map((n) => `b${n}`)} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Characters</span>
+            <TileRow tiles={RANKS.map((n) => `c${n}`)} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Winds &mdash; East, South, West, North</span>
+            <TileRow tiles={['we', 'ws', 'ww', 'wn']} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Dragons &mdash; Red, Green, White</span>
+            <TileRow tiles={['dr', 'dg', 'dw']} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Flowers</span>
+            <TileRow tiles={['f1', 'f2', 'f3', 'f4']} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Seasons</span>
+            <TileRow tiles={['s1', 's2', 's3', 's4']} />
+          </div>
+          <div className="tile-chart-row">
+            <span className="tile-chart-label">Animals (optional)</span>
+            <TileRow tiles={['a1', 'a2', 'a3', 'a4']} />
+          </div>
+        </div>
+
         <h2>Glossary</h2>
         <dl className="rules-glossary">
           <dt>Chow</dt>
           <dd>
-            Taking a tile discarded by the player on your left to complete a run of three
-            sequential tiles of the same suit.
+            <p>
+              Taking a tile discarded by the player on your left to complete a run of three
+              sequential tiles of the same suit.
+            </p>
+            <TileRow tiles={['b5', 'b6', 'b7']} />
           </dd>
           <dt>Pong</dt>
           <dd>
-            Taking a discarded tile that matches a concealed pair of the same tile to make a
-            triplet. It can be done out of turn; you must call it as the tile is discarded.
+            <p>
+              Taking a discarded tile that matches a concealed pair of the same tile to make a
+              triplet. It can be done out of turn; you must call it as the tile is discarded.
+            </p>
+            <TileRow tiles={['c3', 'c3', 'c3']} />
           </dd>
           <dt>Kong</dt>
-          <dd>Four identical tiles &mdash; same numeric suit, dragon, or wind.</dd>
+          <dd>
+            <p>Four identical tiles &mdash; same numeric suit, dragon, or wind.</p>
+            <TileRow tiles={['d2', 'd2', 'd2', 'd2']} />
+          </dd>
           <dt>Dragon tiles</dt>
-          <dd>Red, Green and White.</dd>
+          <dd>
+            <p>Red, Green and White.</p>
+            <TileRow tiles={['dr', 'dg', 'dw']} />
+          </dd>
           <dt>Wind tiles</dt>
-          <dd>East, South, West and North.</dd>
+          <dd>
+            <p>East, South, West and North.</p>
+            <TileRow tiles={['we', 'ws', 'ww', 'wn']} />
+          </dd>
         </dl>
       </article>
     </div>

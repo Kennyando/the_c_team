@@ -565,8 +565,18 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .rules-doc th { background: color-mix(in srgb, var(--panel-edge) 35%, transparent); font-weight: 800; }
 .rules-doc td:last-child:not(:only-child) { white-space: nowrap; }
 .rules-glossary { margin: 0; }
-.rules-glossary dt { font-weight: 800; margin-top: 12px; }
+.rules-glossary dt { font-weight: 800; margin-top: 16px; }
 .rules-glossary dd { margin: 2px 0 0; padding-left: 0; }
+.rules-glossary dd p { margin: 0 0 6px; }
+
+/* Tile pictures, drawn with the game's own artwork. */
+.rules-tiles { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+.rules-tiles .tile { box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18); }
+.tile-chart-row { margin: 14px 0; }
+.tile-chart-label { display: block; font-weight: 800; margin-bottom: 4px; }
+.tile-chart-row .rules-tiles { margin-top: 0; }
+[data-theme='contrast'] .rules-tiles .tile { box-shadow: none; border-color: #000; }
+
 [data-theme='contrast'] .rules-doc h2,
 [data-theme='contrast'] .rules-doc th,
 [data-theme='contrast'] .rules-doc td { border-color: #000; }
