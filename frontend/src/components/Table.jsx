@@ -1,6 +1,6 @@
 import Tile from './Tile.jsx';
 import Seat from './Seat.jsx';
-import { wallStacks } from '../game/tableLayout.js';
+import { handRows, EDGE_SEATS } from '../game/tableLayout.js';
 
 /**
  * The table, seen from your seat.
@@ -9,11 +9,8 @@ import { wallStacks } from '../game/tableLayout.js';
  * safe to tilt. Your own hand is deliberately NOT part of this: it renders flat and full size
  * outside the perspective, so nothing you actually tap is ever foreshortened.
  */
-// Which seat's discards pile up on which edge, just inside that seat's own wall.
-const DISCARD_SEATS = { far: 2, right: 3, near: 0, left: 1 };
-
 export default function Table({ state }) {
-  const ring = wallStacks(state.wall.length);
+  const rows = handRows(state.players);
   const lastIndex = state.discards.length - 1;
 
   return (
@@ -21,12 +18,13 @@ export default function Table({ state }) {
       <div className="surface">
         <div className="felt" aria-hidden="true" />
 
-        {/* The undrawn wall, lying flat so it recedes with the table. */}
-        <div className="wall" aria-hidden="true">
-          {ring.map(({ edge, stacks }) => (
-            <div key={edge} className={`wall-edge wall-edge-${edge}`}>
-              {Array.from({ length: stacks }, (_, i) => (
-                <span key={i} className="stack" />
+        {/* Each player's concealed hand, backs up and lying flat so it recedes with the table.
+            One back per tile they hold, so a row's length is that player's hand size. */}
+        <div className="rack" aria-hidden="true">
+          {rows.map(({ edge, tiles }) => (
+            <div key={edge} className={`rack-edge rack-edge-${edge}`}>
+              {Array.from({ length: tiles }, (_, i) => (
+                <span key={i} className="rack-tile" />
               ))}
             </div>
           ))}
@@ -36,10 +34,10 @@ export default function Table({ state }) {
         <Seat className="seat-left" player={state.players[1]} dealer={state.dealer} active={state.turn === 1} />
         <Seat className="seat-right" player={state.players[3]} dealer={state.dealer} active={state.turn === 3} />
 
-        {/* Each seat discards into its own tidy grid, just inside its own wall. */}
+        {/* Each seat discards into its own tidy grid, just inside its own row of backs. */}
         <div className="discard-piles" aria-label="Discarded tiles">
           {state.discards.length === 0 && <p className="discards-empty">No tiles discarded yet</p>}
-          {Object.entries(DISCARD_SEATS).map(([edge, seat]) => (
+          {Object.entries(EDGE_SEATS).map(([edge, seat]) => (
             <div key={edge} className={`discard-pile discard-pile-${edge}`}>
               {state.discards
                 .map((d, i) => ({ ...d, i }))

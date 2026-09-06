@@ -2096,3 +2096,317 @@ Next: `cdk bootstrap` + `cdk deploy` in the sandbox, set `VITE_REVIEW_URL`, play
      `test:integration` is for).
 
 backend 25/25 (17 + 8 new), agents 17/17, frontend 102/102. `cdk synth` clean.
+
+---
+
+## Table polish — tile tooltip, honest wall count, discard/draw animation
+
+- [x] **Tile name on hover.** `Tile.jsx` puts `tileName(tile)` on a `data-name`
+  attribute; `styles.css` `.tile::after` shows it as a small chip on
+  `:hover` / `:focus-visible`. One component, covers every tile in the app.
+- [x] **Wall count tallies with the felt.** `tableLayout.js` `wallStacks` no
+  longer halves the count into fake two-high stacks — it splits `remaining`
+  evenly across the four edges and returns `{ edge, tiles }` summing to
+  `remaining`. `Table.jsx` renders one `.wall-tile` back per tile; `styles.css`
+  `.wall-edge` is a single-row flex along each edge (see "single-row wall"
+  below — an earlier 2-row grid was reverted). Test file updated.
+- [x] **Discard / draw animation.** `styles.css` `discard-in` (newest discard
+  rises + fades into its pile) and `draw-pop` (`.hand-tiles .tile.just-drawn`
+  scales in). Both disabled under `prefers-reduced-motion`.
+
+A follow-up experiment that replaced the wall with per-player face-down racks
+was reverted at the user's request; the wall display above is the current
+state.
+
+backend/agents unchanged; frontend 102/102, `vite build` clean.
+
+---
+
+## PR #16 review — restore opponent racks (3D)
+
+Review comment on PR #16 (`feature/tiles-3d-upright`): keep the 3D tile work but
+bring back the opponent concealed racks that commit `0a1f8d9` dropped, restyled
+to match the new 3D tiles. (A second, "longer term" point — move seat/wall/river
+geometry into `tableLayout.js` and use 6-column discard rivers — is left as a
+deferred follow-up: the reviewer framed it as long-term and sibling PR #17 was
+rejected for attempting it.)
+
+- [x] **`Tile.jsx`** — re-added the `TileBack` export (`<span class="tile-back">`).
+- [x] **`Seat.jsx`** — restored the rack: `player.hand.map(() => <TileBack/>)`
+  with the `holds N tiles` aria-label, rendered above the name plate so the far
+  seat's name clears the top-centre log toast.
+- [x] **`styles.css`** — `.rack` is a single non-wrapping flex row; `.tile-back`
+  is a green backed tile with the same `--tile-lift` + a dark green base as the
+  felt's 3D tiles, `flex: 1 1 0` with a `max-width` cap so the wide far seat
+  shows them larger and the narrow side seats shrink to keep one line.
+  `.seat` gap 6→10px so the plate clears the rack's lift shadow. High-contrast
+  variant added.
+
+Verified in headless Chromium: all three opponents show a single row of green
+3D backs, count = hand size (13, or 14 on their turn, checked across bot turns);
+wall still drawn; name plates readable. frontend 102 + 13 tests pass, build
+clean. Not committed/pushed.
+
+**Reverted at the user's request (see below).** The green racks read as visual
+noise between the player and each opponent's discards; the wall and the seat
+plate already show where each player sits.
+
+---
+
+## Single-row wall + drop the green opponent racks
+
+The user asked for the table wall to be a single row again, and for the green
+face-down racks above each opponent (the "PR #16 review" change above) to be
+removed. The tile hover tooltip and the discard/draw animations from "Table
+polish" stay; the honest one-back-per-tile wall count stays (a single row holds
+it fine in practice — ~23 backs per edge just after the deal).
+
+- [x] **`styles.css` — wall.** `.wall-edge` back to a single-row flex
+  (`display: flex; overflow: hidden`); `.wall-edge-far/-near` get `max-width: 92%`
+  so a pre-deal full-wall count clips instead of overflowing the felt. `.stack`
+  is gone already; `.wall-tile` unchanged.
+- [x] **`Seat.jsx`** — reverted to the no-rack version (`git checkout HEAD`).
+- [x] **`Tile.jsx`** — removed the re-added `TileBack` export; kept the
+  `data-name` tooltip attributes.
+- [x] **`styles.css` — opponents.** Deleted `.rack` / `.tile-back` /
+  its high-contrast variant; `.seat` gap back to 6px.
+
+### Review
+
+Four small edits, all presentation-only, no engine or test-logic changes:
+
+1. **Wall is one row again.** The only functional CSS change is `.wall-edge`
+   switching from a 2-row grid to a flex row with `overflow: hidden`, plus a
+   `max-width` on the top/bottom edges as an overflow safety net. `Table.jsx`,
+   `tableLayout.js` and `tableLayout.test.js` were left as-is — the honest count
+   model is unaffected by how the row is laid out.
+2. **Green racks removed.** `Seat.jsx` reverted cleanly to `HEAD`; `Tile.jsx`
+   lost only the `TileBack` export (the `data-name` tooltip work is untouched);
+   the `.rack`/`.tile-back` rules were deleted and `.seat`'s gap returned to its
+   pre-rack 6px.
+
+**Verification.** `npm test` 102/102, `npm run test:components` 13/13,
+`npm run build` clean. No reference to `rack`, `tile-back`, `TileBack` or
+`grid-template-rows` remains in `frontend/src`.
+
+---
+
+## The felt rows show each seat's hand, not the wall
+
+The rows of small backs along each table edge were drawing the **undrawn wall**
+(`wallStacks(state.wall.length)`, split four ways), so the far edge showed 22
+backs while the player's hand held 14. The user read those rows as hands and
+asked for the counts to match — same formation, same positions, same tile size,
+only the number of backs changes.
+
+Nothing is lost by dropping the wall from the felt: `App.jsx` already prints
+`{state.wall.length} tiles left in the wall` in the top bar, and the coach
+reports it on request. It also restores something the code already claimed —
+`Puzzle.jsx`'s `toTableState` docstring describes opponents as "face-down racks"
+read from `hand.length`, and it already builds all four players with a `hand`,
+so the puzzle screen needed no change.
+
+- [x] **`tableLayout.js`** — `EDGES` + `wallStacks(remaining)` replaced by
+  `EDGE_SEATS` (`{ far: 2, right: 3, near: 0, left: 1 }`) and
+  `handRows(players)` returning `[{ edge, seat, tiles }]` with
+  `tiles = players[seat].hand.length`.
+- [x] **`Table.jsx`** — renders from `handRows(state.players)`. Its private
+  `DISCARD_SEATS` const was deleted in favour of the now-shared `EDGE_SEATS`,
+  which held the identical value.
+- [x] **`styles.css`** — `.wall*` → `.rack*` rename only; every declaration keeps
+  its exact value. `.wall-count` (the top-bar text, which really is the wall) is
+  deliberately untouched. Stale comments about "the wall lying flat" beside each
+  seat reworded.
+- [x] **`test/tableLayout.test.js`** — four `handRows` tests replacing the four
+  `wallStacks` ones.
+
+### Review
+
+**One mapping instead of two.** The edge→seat lookup already existed as
+`DISCARD_SEATS` inside `Table.jsx`; the fix needed exactly the same mapping, so
+it moved to `tableLayout.js` as `EDGE_SEATS` and now serves both the rows of
+backs and the discard piles. That is what keeps a seat's row and its discard
+pile from ever drifting onto different edges.
+
+**The rename was worth doing.** Leaving a selector called `.wall-tile` to render
+hands would have been a live trap, especially with a genuine `.wall-count` class
+ten lines away in the same file. It is mechanical — class names in `Table.jsx`
+and `styles.css` changed together, zero property values touched, so the layout
+is provably unmoved.
+
+**A row shrinks with its hand.** Because the count comes from `hand.length`, a
+player who exposes a pong drops from 13 backs to 10 — the concealed tiles are
+the ones drawn, and the exposed meld is already shown separately by `Seat.jsx`.
+The test for two pongs (13 → 7) is the one that pins this down.
+
+**Verification.** `npm test` 102/102, `npm run test:components` 13/13,
+`npm run build` clean. `wall-edge` / `wall-tile` / `wallStacks` / `DISCARD_SEATS`
+have zero hits left in `frontend/`, while `.wall-count` is still present in both
+`styles.css` and `App.jsx`. Checked against a real `newGame(DEFAULT_RULES)`
+rather than only synthetic hands: freshly dealt, far/left/right draw 13 and near
+draws 14, matching each `hand.length` exactly; after the human discards, near
+falls to 13; the top bar still reads "86 tiles left in the wall" throughout.
+
+---
+
+## Move the opponent name plates off their tiles
+
+Each opponent's name plate (`Ah Ma` / `Ah Gong` / `Ah Huat`) sat on top of that player's
+exposed **meld** tiles — the pill covered the top of the meld row. Cause: the seat's 3D
+counter-rotation (`translateZ(30px) rotateX(-tilt)` about its bottom edge) projects the plate —
+the top of the `[plate, melds]` flex column — downward onto the melds under the scene's
+`perspective`, swallowing the `gap: 6px`. The far seat was worse: its melds and the far discard
+pile occupied nearly the same screen rectangle.
+
+Presentation-only, `frontend/src/styles.css` alone. No JSX/engine/test changes (no test asserts
+plate geometry). Only affects the tilted "seated" view — the flat view has no counter-rotation.
+
+- [x] **`.seat` `gap: 6px` → `calc(var(--tile-h) * 0.3)`** — a wide, tile-relative gap so the
+  plate clears the melds after the perspective projection.
+- [x] **`.seat-far` gets its own `gap: calc(var(--tile-h) * 0.16)`** and `bottom: 64% → 60%` —
+  the far edge has the wall-backs row just above it, so the plate can't lift as far; it uses a
+  smaller gap and clears its melds off the discards by moving the pile instead.
+- [x] **`.seat-left` / `.seat-right` `bottom: 44% → 40%`** — the wider gap lifts the side plates;
+  drop the anchors so they don't crowd the top rim or the far seat.
+- [x] **`.rack-edge-far` `top: 4% → 1%`** — nudge the far wall-backs row up so a short scene
+  (tall hand area) can't push the lifted far plate into it.
+- [x] **`.discard-pile-far` `top: 24% → 42%`** + a shorter `max-height` (3 rows vs 4) — moves
+  the far discards toward the centre, off the far player's melds, and keeps a long run from
+  reaching the middle of the table.
+- [x] **`@media (max-width: 900px)`** seat overrides shifted by the same deltas
+  (`.seat-far 68% → 60%`, `.seat-left/right 42% → 38%`).
+
+### Review
+
+**The gap is the fix; the anchors are damage control.** The one line that matters is the `.seat`
+gap — it's what stops the plate sitting on the melds. Everything else (`.seat-far` own gap, the
+lowered anchors, the nudged wall row) exists only to absorb the side effect of that gap lifting
+the plates, so nothing new gets pushed off an edge.
+
+**The far seat is genuinely cramped** — wall row, plate, melds and discards all foreshorten into
+a thin band. Its plate/meld gap ends up ~19px on screen vs ~30px on the sides, but it is clearly
+clear, and moving the far discard pile toward the centre is what actually frees the melds.
+
+**Known pre-existing (not touched):** the left/right plates still overlap the *decorative*
+diagonal wall-backs strips behind them — those are face-down count indicators, not melds or
+discards, and avoiding them would mean moving the wall strips or shrinking the plates, well
+beyond "move the names off the tiles."
+
+**Verification.** Driven in headless Chromium with melds forced onto all three seats, measuring
+`.seat-*` / `.discard-pile-*` bounding boxes: plate→meld gap 19–33px on every seat (was 3–9px);
+far melds now 21–32px clear of the far discard pile (was 39px overlap); far plate clear of the
+wall row in both a normal and a compressed-scene layout. Checked seated + flat + high-contrast +
+the 860px narrow layout. `npm test` 102/102, `npm run test:components` 13/13, `npm run build`
+clean.
+
+---
+
+## Tiles as 3D blocks with a visible top surface
+
+The user supplied a reference screenshot from a classic mahjong app. Its signature is that
+**every standing tile shows its top surface** — a lighter band above the face with a crisp seam —
+and that there is **no coloured frame around the face**; the body colour appears only as that top
+band (and as the whole tile when face-down). Our tiles did the opposite: an ivory card with a
+green lip extruded *downward*.
+
+Confirmed with the user: **all three groups** (your hand, table discards + melds, the face-down
+wall rows) and **keep green on the tiles**. Green tops are the physically right answer for a
+green-backed set anyway — an ivory face inlaid in a green body shows the body's lit top edge.
+
+Presentation-only, `styles.css` alone. No JSX, no DOM, no 3D transforms.
+
+- [x] **Tokens** — `--tile-top` (#55ab80, the lit upper surface) and `--tile-top-edge` (#1b5340,
+  the seam/outline) beside the existing `--tile-green`. The contrast theme inverts them to a white
+  top with a black seam.
+- [x] **`.tile`** — the downward green lip is gone. A local `--tile-depth` (14% of that tile's own
+  height) drives two upward `box-shadow` offsets: the top surface, and a 1.5px outline around it.
+  `border-top-color` becomes `--tile-top-edge` so the seam is a dark line, not the face's warm
+  edge. `--tile-depth` is re-declared on `.tile.small` (×0.62) and `.seat-meld .tile.small`
+  (×0.46) so the band stays ~14% of each rendering.
+- [x] **`.rack-tile`** — the wall rows are now the same block, green all over: green body, lit top
+  band, dark outline, small contact shadow.
+- [x] **Spacing the band would otherwise collide with** — `.hand-tiles` gained a row-gap and
+  `padding-top`, `.discard-pile`'s row-gap became `--tile-h`-relative, and the hover-name chip's
+  `margin-bottom` clears `--tile-depth`. The band is drawn outside the box, so it reserves no
+  layout space of its own.
+
+### Review
+
+**Offset copies of the tile's own rounded rectangle.** Using `box-shadow` rather than a
+pseudo-element or a real 3D face means the band inherits the tile's `border-radius` — the top
+surface gets correctly rounded top corners for free — costs no DOM, and is transform-independent,
+so the flat view and `prefers-reduced-motion` need no special-casing.
+
+**One depth number, three sizes.** `--tile-depth` is declared per rendering rather than hard-coded,
+so the band stays a constant fraction of whatever that tile actually is, and the whole set still
+scales from the single `--tile-scale` slider. Verified at slider max (`--tile-scale: 2`).
+
+**Contrast inverts the band, not just the colours.** A black top on a black felt renders as a
+hollow outline; a white top with a black seam reads as one solid block. Worth an explicit override
+rather than letting `--tile-green: #000` flow through.
+
+**Two earlier ideas deliberately dropped** — the thick green frame around the face and the
+downward extruded base from the attempt reverted earlier on this branch. The reference has
+neither: the face runs edge to edge and all the depth is above it.
+
+**Verification.** Driven in headless Chromium at the human's turn with melds on the table: hand,
+discards, melds and wall rows all render as blocks with a green top surface. Checked seated, flat,
+high-contrast and `--tile-scale: 2`. `npm test` 102/102, `npm run test:components` 13/13,
+`npm run build` clean.
+
+**Known, unchanged:** the discard piles still converge toward the middle when they grow long —
+pre-existing; the row-gap here was kept tight (13% of a tile, just enough to clear the band) so
+this change does not make it worse.
+
+---
+
+## Revert the green tile colour; keep only a side strip on the left/right seats
+
+The green top-surface band from the section above was reverted at the user's request. A tile
+facing you should just show its white face; only tiles at the **left and right seats** — seen at
+an angle from your chair — show a strip of the green body on their outer side, "the way a normal
+tile would look."
+
+Confirmed: near pile + far pile + your hand + far seat's melds → plain white; left seat → green
+strip on the LEFT edge; right seat → green strip on the RIGHT edge; the face-down wall rows →
+back to the tan strip they were before the band change.
+
+`frontend/src/styles.css` only. No JSX/DOM/test changes.
+
+- [x] **Removed** `--tile-top` / `--tile-top-edge` (both themes), `--tile-depth` and every use of
+  it, `.tile`'s three-layer top-band `box-shadow` and `border-top-color` (→ `box-shadow:
+  var(--tile-lift)` and a uniform border), the `.hand-tiles` extra row-gap + `padding-top`, and
+  `.discard-pile`'s inflated row-gap (→ `12px 3px`). `.rack-tile` restored to
+  `linear-gradient(#f2ead6, #cdbf9e)` / `1px solid #8d7c58`, contrast back to `#fff` / `#000`.
+- [x] **`.tile.just-drawn`** now only adds the highlight ring (`box-shadow: 0 0 0 3px
+  var(--highlight), var(--tile-lift)`), no `border-color` — so a highlighted discard in a side
+  pile keeps its green edge strip.
+- [x] **Side strip (new):** `.seat-left .tile, .discard-pile-left .tile { border-left: var(--strip)
+  solid var(--tile-green) }` and the mirror for the right. `--strip` is `calc(var(--tile-w) *
+  <scale> * 0.2)` — set on `.tile.small` (0.62) and `.seat-meld .tile.small` (0.46) where the
+  tile's width is known, `0px` fallback on `.tile`.
+
+### Review
+
+**The strip is a border, not a shadow.** `box-sizing: border-box` is global, so `border-left`
+narrows the tile's own content box — the SVG face just renders ~20% narrower — with no overlap
+against the neighbouring tile in a row and no gap juggling. A shadow-based outside strip would
+have needed per-pile column-gap rules and still clipped at row edges.
+
+**`--strip` lives with the size, not the strip rule.** The two side rules are size-agnostic;
+`--strip` is declared once per rendering (`.tile.small`, `.seat-meld .tile.small`), so it stays
+~20% of whatever that tile actually is and still scales from the one `--tile-scale` slider. The
+`0px` fallback on `.tile` keeps the rule valid on every non-side tile.
+
+**Verification.** Driven in headless Chromium at the human's turn with melds on all three seats
+and discards in every pile: near/far/hand/far-melds are plain white; left melds+pile carry a
+green left strip, right a green right strip; the latest discard still gets its ring; wall rows are
+tan. Checked seated, flat and high-contrast (strip renders as a black edge there — legible).
+`npm test` 102/102, `npm run test:components` 13/13, `npm run build` clean.
+
+**Follow-up — strip removed too.** The user then asked for the side strip gone as well, so the
+left/right tiles match the rest. Deleted the two `border-left`/`border-right` rules, the `--strip`
+custom property (all three declarations), and the now-unused `--tile-green` token (both themes) —
+`grep "tile-green\|--strip"` is clean. Every tile on the felt and in the hand is now a plain white
+card; nothing tints a tile green anywhere. `102/102`, `13/13`, build clean; re-checked seated,
+flat and high-contrast.
