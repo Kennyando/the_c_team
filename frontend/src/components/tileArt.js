@@ -71,12 +71,15 @@ export const HONOUR_GLYPHS = {
   dr: '中', dg: '發',
 };
 
+/**
  * Simple motifs for the bonus tiles.
  * The four Flowers (梅 plum / 蘭 orchid / 菊 chrysanthemum / 竹 bamboo) share one uniform flower
  * shape rather than four distinct plant illustrations — matching the reference set, where all
  * four/eight bonus tiles read as "a flower tile" at a glance, differentiated by the corner number
- * rather than by botanically distinct artwork. The four Seasons stay distinct (see known
- * limitation below) since that's a separate, already-documented simplification.
+ * rather than by botanically distinct artwork.
+ * The four Seasons stay distinct: a real set shows figurative scenes (fisherman, woodcutter,
+ * farmer, scholar), which do not survive being drawn at tile size — so they get a seasonal mark
+ * plus their number instead.
  */
 export const MOTIFS = {
   f1: 'flower',
