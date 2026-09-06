@@ -221,10 +221,10 @@ const STATIC = {
  * answered about the tile on the table while "what does pong do?" gets the rule.
  *
  * `keywords` are a looser safety net: when no `patterns` entry matches, `ask()` scores each intent
- * by how many of its keywords appear as whole words (or phrases) in the question and takes the
- * clear winner. They are deliberately narrow and Mahjong-specific so a stray common word can't
- * drag a question to the wrong intent; ties fall to whichever intent is listed first, so position
- * advice still beats the rule for a shared term.
+ * by how many of its keywords appear as whole words (or phrases) in the question. A single intent
+ * has to hold the top score outright — a tie means the words point at more than one intent, which
+ * is not confident enough, so the question falls through to `fallback()` instead. Lists are
+ * deliberately narrow and Mahjong-specific so a stray common word can't misroute a question.
  */
 export const INTENTS = [
   { id: 'advice.discard', answer: adviceDiscard,
@@ -245,7 +245,9 @@ export const INTENTS = [
       /how (close|near|far)/, /am i (close|near|ready|winning)/, /(tiles?|much).*(away|left to win)/,
       /waiting (on|for)/, /can i win/,
     ],
-    keywords: ['close', 'near', 'ready', 'waiting', 'tenpai', 'behind', 'progress'] },
+    // "close" / "near" are left to the patterns above — as bare keywords they catch "close the
+    // coach" / "near the end" and route a UI or filler question to a position readout.
+    keywords: ['tenpai', 'waiting', 'behind', 'progress'] },
   { id: 'advice.value', answer: adviceValue,
     patterns: [
       /(my|i).*(hand).*(worth|score|tai)/, /how (many|much).*(tai|points|worth).*(i|my|me)/,
@@ -283,7 +285,7 @@ export const INTENTS = [
     patterns: [/\b(kong|gang|kan)\b/, /four of a kind/],
     keywords: ['kong', 'gang', 'kan', 'quad'] },
   { id: 'rules.win', answer: () => STATIC.win,
-    patterns: [/how.*win/, /\b(win|hu|mahjong|winning hand)\b/, /complete.*hand/],
+    patterns: [/how\b.*\bwin(ning)?\b/, /\b(win|hu|mahjong|winning hand)\b/, /complete.*hand/],
     keywords: ['win', 'winning', 'mahjong'] },
   { id: 'rules.flowers', answer: () => STATIC.flowers,
     patterns: [/flower|season|bonus tile|animal/],
@@ -320,24 +322,25 @@ function build(intent, state) {
 
 /**
  * Looser second pass: score each intent by how many of its `keywords` appear in the question as
- * whole words (or, for multi-word keywords, as a phrase). Returns the best-scoring intent, or
- * `null` when nothing matched. Ties keep INTENTS order via the strict `>`.
+ * whole words (or, for multi-word keywords, as a phrase). Returns an intent only when exactly one
+ * holds the top score — a tie means the words point at more than one intent, so it's returned as
+ * `null` and the caller falls through to `fallback()` (and, with Phase 2, on to the model).
  */
 function guessIntent(text) {
   const words = new Set(text.split(/[^a-z]+/).filter(Boolean));
-  let best = null;
-  let bestScore = 0;
-  for (const intent of INTENTS) {
+  const scored = INTENTS.map((intent) => {
     let score = 0;
     for (const kw of intent.keywords || []) {
       if (kw.includes(' ') ? text.includes(kw) : words.has(kw)) score += 1;
     }
-    if (score > bestScore) {
-      bestScore = score;
-      best = intent;
-    }
-  }
-  return best;
+    return { intent, score };
+  });
+
+  const top = Math.max(...scored.map((s) => s.score));
+  if (top === 0) return null;
+
+  const leaders = scored.filter((s) => s.score === top);
+  return leaders.length === 1 ? leaders[0].intent : null;
 }
 
 /** Route a question to an answer. Never throws and never returns nothing. */

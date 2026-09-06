@@ -2284,17 +2284,23 @@ Stays 100% offline; routes only to the existing rules-accurate handlers.
 
 - [x] `coach.js` — added a `keywords` array to each `INTENTS` entry (narrow, Mahjong-specific).
 - [x] `coach.js` — `ask()`: after the ordered regex loop misses, `guessIntent()` scores each
-      intent by keyword hits (whole-word for single words, phrase-substring for multi-word); the
-      first intent with score > 0 wins (ties keep INTENTS order → advice still beats rule).
-      Result tagged `matchedBy: 'keyword'`. A true zero still falls to `fallback()`.
+      intent by keyword hits (whole-word for single words, phrase-substring for multi-word).
+      Returns an intent only when **one** holds the top score outright; a tie → `null` → the
+      question falls through to `fallback()` (PR #25 review: don't let array order decide an
+      ambiguous match). Result tagged `matchedBy: 'keyword'`.
 - [x] `coach.js` — widened a few patterns: `advice.discard` ("what do I do now", "my move",
-      "what now"), `advice.value` ("how much is this hand"), `rules.limit` ("biggest hand").
+      "what now"), `advice.value` ("how much is this hand"), `rules.limit` ("biggest hand");
+      tightened `rules.win`'s `/how.*win/` → `/how\b.*\bwin(ning)?\b/` (it was matching
+      "how do I close this **win**dow"). Dropped bare "close"/"near" from `advice.progress`
+      keywords — they caught "close the coach" — the patterns still cover "how close am I".
 - [x] No new intents, no backend change — `backend/shared/intents.json` + drift test untouched.
 - [x] `frontend/test/coach.test.js` — added "routes on its keywords" (dump/chuck→discard,
       "worth anything"→value, "pile no one draws from"→wall, "quad"→kong, "house variant"→table,
-      "am I behind"→progress) and "does not drag an off-topic question" (weather / joke / "who
-      won last night" → fallback).
-- [x] Verified: `frontend` 104/104 node (was 102) + 13/13 component.
+      "am I behind"→progress) and "does not drag an off-topic question" — now also covering
+      wrong-context ("can I close the coach?", "how do I close this window") and tied-keyword
+      ("should I dump my hidden tiles") → fallback.
+- [x] Verified: `frontend` 104/104 node (was 102) + 13/13 component. Both PR #25 review
+      comments addressed.
 
 ### Review
 

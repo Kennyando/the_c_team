@@ -203,7 +203,18 @@ test('a question no pattern catches still routes on its keywords', () => {
 });
 
 test('the keyword score does not drag an off-topic question to an answer', () => {
-  for (const question of ['what is the weather like', 'tell me a joke', 'who won the game last night']) {
+  const cases = [
+    // No Mahjong keyword at all.
+    'what is the weather like',
+    'tell me a joke',
+    'who won the game last night',
+    // A keyword, but plainly the wrong context — a UI action, not a position question.
+    'can I close the coach?',
+    'how do I close this window',
+    // Keywords from two different intents, tied — not confident enough to route.
+    'should I dump my hidden tiles', // dump -> discard, hidden -> concealed
+  ];
+  for (const question of cases) {
     assert.equal(ask(question, state()).intent, 'fallback', `"${question}"`);
   }
 });
