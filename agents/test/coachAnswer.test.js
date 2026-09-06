@@ -1,0 +1,187 @@
+// Unit tests for the coach agent (src/coach/coachAnswer.js) and its context builder. Bedrock is
+// mocked in every case — nothing here touches the network or costs anything, the same convention
+// as reviewHand.test.js.
+
+import test, { mock, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+
+import { runCoachAnswer } from '../src/coach/coachAnswer.js';
+import { coachContext } from '../src/context/coachContext.js';
+
+// --- fixtures -------------------------------------------------------------------------------
+
+// A ready hand (three runs, a pair, c7c8 waiting on c6/c9), your turn to discard.
+const POSITION = {
+  hand: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'b1', 'b2', 'b3', 'c7', 'c8', 'we', 'we'],
+  melds: [[], [], [], []],
+  bonus: [[], [], [], []],
+  discards: [{ tile: 'dr', by: 1 }],
+  wallCount: 70,
+  turn: 0,
+  phase: 'act',
+  dealer: 0,
+  prevailingWind: 'we',
+  rules: { dragonPong: true, halfFlush: true, limit: 5 },
+  claimOptions: [],
+  pending: null,
+};
+
+const converse = (text) => ({ output: { message: { content: [{ text }] } } });
+const mockReply = (obj) =>
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () =>
+    converse(typeof obj === 'string' ? obj : JSON.stringify(obj)),
+  );
+
+// f2 (wall count) and f3 (hand distance) are always emitted for POSITION; f5 is the discard pick.
+const goodReply = {
+  answer: [
+    { refs: ['f3'], text: 'You are one tile from winning — hold steady.' },
+    { refs: ['f5'], text: 'If you must let one go, the coach likes 8 Characters.' },
+  ],
+};
+
+afterEach(() => mock.restoreAll());
+
+// --- no model / opted out ----------------------------------------------------------------------
+
+test('an empty question returns the deterministic answer, no model call', async () => {
+  const send = mockReply(goodReply);
+  const result = await runCoachAnswer({ position: POSITION, question: '  ' });
+  assert.equal(send.mock.callCount(), 0);
+  assert.equal(result.modelAssisted, false);
+  assert.ok(result.lines.length > 0);
+});
+
+test('useModel:false returns the deterministic answer, no model call', async () => {
+  const send = mockReply(goodReply);
+  const result = await runCoachAnswer({ position: POSITION, question: 'what should I do', useModel: false });
+  assert.equal(send.mock.callCount(), 0);
+  assert.equal(result.modelAssisted, false);
+});
+
+// --- model path --------------------------------------------------------------------------------
+
+test('a well-formed, grounded reply is used and marked modelAssisted', async () => {
+  const send = mockReply(goodReply);
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close to winning?' });
+  assert.equal(send.mock.callCount(), 1);
+  assert.equal(result.modelAssisted, true);
+  assert.equal(result.title, 'Coach');
+  assert.deepEqual(result.lines, goodReply.answer.map((l) => l.text));
+});
+
+test('the model prompt lists the facts by id and asks for citations', async () => {
+  const send = mockReply(goodReply);
+  await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  const userPrompt = send.mock.calls[0].arguments[0].input.messages[0].content[0].text;
+  assert.match(userPrompt, /cite these by id/);
+  assert.match(userPrompt, /^f0: /m);
+  assert.match(userPrompt, /QUESTION: am I close\?/);
+});
+
+test('a reply wrapped in a ```json fence is still parsed and used', async () => {
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () =>
+    converse('```json\n' + JSON.stringify(goodReply) + '\n```'),
+  );
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, true);
+});
+
+// --- grounding: cited ids must resolve to real facts ----------------------------------------
+
+test('a line citing a fact id that does not exist drops the whole reply', async () => {
+  mockReply({ answer: [{ refs: ['f99'], text: 'A rule I just made up.' }] });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('one grounded line and one ungrounded line drops the whole reply', async () => {
+  mockReply({
+    answer: [
+      { refs: ['f3'], text: 'You are one tile from winning.' },
+      { refs: ['f3', 'f42'], text: 'And a half flush pays six here.' },
+    ],
+  });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, false);
+});
+
+// --- bad output -> deterministic fallback -----------------------------------------------------
+
+test('a non-JSON reply falls back to the deterministic answer', async () => {
+  const send = mockReply('sorry, I cannot help with that');
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(send.mock.callCount(), 1);
+  assert.equal(result.modelAssisted, false);
+});
+
+test('a reply with the wrong shape falls back', async () => {
+  for (const bad of [
+    { answer: ['a bare string, the old shape'] },
+    { answer: [{ text: 'no refs field' }] },
+    { answer: [{ refs: [], text: 'empty refs' }] },
+    { answer: [{ refs: ['f0'], text: '' }] },
+    { answer: [{ refs: [1, 2], text: 'refs must be strings' }] },
+    { answer: [{ refs: ['f0'], text: 'x'.repeat(200) }] },
+    { answer: [] },
+    { reply: [{ refs: ['f0'], text: 'wrong key' }] },
+  ]) {
+    mock.restoreAll();
+    mockReply(bad);
+    const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+    assert.equal(result.modelAssisted, false, JSON.stringify(bad));
+  }
+});
+
+test('more than three lines falls back', async () => {
+  mockReply({ answer: [1, 2, 3, 4].map((n) => ({ refs: ['f2'], text: `line ${n}` })) });
+  const result = await runCoachAnswer({ position: POSITION, question: 'tell me everything' });
+  assert.equal(result.modelAssisted, false);
+});
+
+// --- infrastructure failure -----------------------------------------------------------------
+
+test('Bedrock throwing falls back to deterministic without throwing', async () => {
+  mock.method(BedrockRuntimeClient.prototype, 'send', async () => {
+    throw new Error('AccessDeniedException');
+  });
+  const result = await runCoachAnswer({ position: POSITION, question: 'am I close?' });
+  assert.equal(result.modelAssisted, false);
+  assert.ok(result.lines.length > 0);
+});
+
+test('a malformed position does not throw — it still answers', async () => {
+  mockReply(goodReply);
+  const result = await runCoachAnswer({ position: { hand: 'not an array', rules: null }, question: 'help' });
+  assert.ok(result.lines.length > 0);
+});
+
+// --- coachContext: every legal claim, not just the first ------------------------------------
+
+test('coachContext emits one fact per claim option, each with an id', () => {
+  const claimPosition = {
+    ...POSITION,
+    hand: ['b3', 'b4', 'b6', 'b7', 'c1', 'c2', 'c3', 'd4', 'd5', 'd6', 'we', 'we', 'ws'],
+    phase: 'claim',
+    turn: 2,
+    pending: { tile: 'b5', by: 1 },
+    // Two chow shapes for b5 (b3-b4 and b6-b7), plus a pong the hand can't actually back — the
+    // point is that coachContext surfaces every entry, not that they're all sensible.
+    claimOptions: [
+      { type: 'chow', tiles: ['b3', 'b4', 'b5'], seat: 0 },
+      { type: 'chow', tiles: ['b5', 'b6', 'b7'], seat: 0 },
+    ],
+  };
+  const { facts } = coachContext(claimPosition);
+  const claimFacts = facts.filter((f) => /is on offer/.test(f.text));
+  assert.equal(claimFacts.length, 2, 'both chow options should be represented');
+  // The two shapes are distinguished by their outer tiles (3 Bamboo vs 7 Bamboo).
+  assert.ok(claimFacts.some((f) => /3 Bamboo/.test(f.text)));
+  assert.ok(claimFacts.some((f) => /7 Bamboo/.test(f.text)));
+  // Ids are stable and unique.
+  assert.deepEqual(
+    facts.map((f) => f.id),
+    facts.map((_, i) => `f${i}`),
+  );
+});

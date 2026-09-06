@@ -67,6 +67,8 @@ lambda/join.ts             "join" route — seats a player in a room
 lambda/gameAction.ts       "action" route — moves + Polly narration
 lambda/advise.ts           "advise" route — the move-advisor chatbot
 lambda/classifyIntent.ts   HTTP "/classify-intent" route — help-coach fallback classifier
+lambda/reviewHand.ts       HTTP "/review-hand" route — post-hand review agent (@kaki/agents)
+lambda/coachAnswer.ts      HTTP "/coach-answer" route — last-resort coach agent (@kaki/agents)
 lambda/mahjong/tiles.ts    Tile encoding + human-readable parsing
 lambda/mahjong/shanten.ts  Distance-to-win calculator
 lambda/mahjong/advisor.ts  Legal-call detection + discard recommendation
@@ -222,6 +224,13 @@ via `aws cloudformation describe-stacks`):
 - `WebSocketUrl` — the `wss://` endpoint the client app connects to
 - `ClassifyIntentUrl` — set as `VITE_CLASSIFY_INTENT_URL` in the frontend to turn on the help
   coach's model-assisted fallback (optional — the coach works without it)
+- `CoachAnswerUrl` — set as `VITE_COACH_ANSWER_URL` in the frontend for the last-resort coach
+  tier: when a question fits no local pattern *and* the classifier places no existing answer, a
+  model reads the position (facts built server-side from `advisor.js` against this table's
+  rules) and answers in words. Optional and independent of `ClassifyIntentUrl`. Same
+  no-credentials posture as the other two `CoachApi` routes — the shared request-rate throttle
+  (`coachApiRateLimit`/`coachApiBurstLimit`), reserved concurrency (`coachApiConcurrency`), and
+  opt-in Budget are what bound its Bedrock spend. Reuses `agentModelId` (Nova Lite).
 - `UserPoolId` / `UserPoolClientId` — for Cognito sign-in in the client
 - `AssetsBucketName` — upload tile graphics/sounds here (e.g. under `tiles/`)
 - `AssetsDomainName` — the CloudFront domain serving those assets and Polly audio

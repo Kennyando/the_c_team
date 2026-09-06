@@ -2320,3 +2320,113 @@ handlers, `INTENTS` ids, `QUICK_QUESTIONS`, the backend, and every other test ar
 
 Phase 2 (model coach agent) is the separate follow-up in
 `~/.claude/plans/open-could-we-implement-floating-sonnet.md`.
+
+---
+
+# Model coach agent — Phase 2
+
+A model-backed coach that reads the live position and answers the player's question in its own
+words, layered on top of the local coach (which stays the floor). Mirrors the review agent.
+Full plan: `~/.claude/plans/open-could-we-implement-floating-sonnet.md`.
+
+Escalation order: local regex → keyword score → classify-intent (existing) → **coach-answer
+model (new)** → `fallback()`.
+
+## agents/
+- [x] `agents/src/context/coachContext.js` — `coachContext(position)`: rebuild a `state`-shaped
+      object from the posted subset (`rebuildState`, not exported), run `advisor.js` primitives
+      (`contextFor`, `shanten`+`describeDistance`, `waits`, `bestDiscard`, `handSummary`,
+      `claimAdvice`) + `rulesContext(position.rules).line`. Return `{ facts: string[], phase,
+      yourTurn, wallCount }`.
+- [x] `agents/src/coach/prompt.js` — `SYSTEM_PROMPT` (answer from FACTS, don't invent rules,
+      JSON `{"answer": string[]}`) + `buildUserPrompt(ctx, question)`.
+- [x] `agents/src/coach/deterministic.js` — a minimal fixed "couldn't work that out" answer.
+      (NOT the full local `ask()` — the frontend already owns that floor and has already run it
+      by the time a question escalates here; re-deriving it server-side just reproduces the same
+      guided fallback. Simpler, and no `@kaki/game` barrel change.)
+- [x] `agents/src/coach/coachAnswer.js` — `runCoachAnswer({ position, question, useModel })`:
+      short-circuit `!useModel || !question` → deterministic; else `callModel` (maxTokens 300,
+      temp 0.3) → `parseJsonObject` → `isCoachAnswerShape` → `normalizeCoachAnswer`; any
+      throw/miss → deterministic.
+- [x] `agents/src/schema.js` — `MAX_COACH_LINE`, `MAX_COACH_LINES`, `CoachAnswerResult` typedef,
+      `isCoachAnswerShape`, `normalizeCoachAnswer`.
+- [x] `agents/src/index.js` + `agents/types/index.d.ts` — export `runCoachAnswer` + interfaces.
+- [x] `agents/test/coachAnswer.test.js` — mock Bedrock; short-circuit / happy / fence /
+      non-JSON / bad-shape / throw → all covered.
+
+## backend/
+- [x] `backend/lambda/coachAnswer.ts` — clone `reviewHand.ts`; validate `question` (≤300),
+      clamp `position.hand`/`.discards`; `runCoachAnswer` → `{ answer }`; catch → 502.
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `CoachAnswerFn` cloned from `ReviewHandFn` (reuses
+      `agentModelId`), `bedrock:InvokeModel` policy, `POST /coach-answer` route, `CoachAnswerUrl`
+      output.
+- [x] `backend/test/coachAnswer.test.ts` — mirror `classifyIntent.test.ts`.
+- [x] `backend/README.md` — document `/coach-answer` + output.
+
+## frontend/
+- [x] `frontend/src/game/coach.js` — `COACH_ANSWER_URL`, `serializePosition(state)`,
+      `answerFromModel(question, state)`; extend `askWithModel` with the coach-answer tier
+      (re-read state after the await).
+- [x] `frontend/src/components/Coach.jsx` — badge `modelAssisted` answers.
+- [x] `frontend/.env.template` — `VITE_COACH_ANSWER_URL=`.
+- [x] `frontend/test/coach.test.js` — coach-answer tier: escalates only when everything else
+      misses; malformed/timeout → local fallback; state re-read after the round trip.
+
+## verify
+- [x] agents 36/36, frontend 108/108 node + 13/13 component, backend 31/31, `tsc --noEmit` clean,
+      `cdk synth` clean (`POST /coach-answer` route + `CoachAnswerFn` + Bedrock policy +
+      `CoachAnswerUrl` output all present).
+
+### Review
+
+Added the framework's second agent, `runCoachAnswer` in `@kaki/agents`, and wired it in as the
+last coach tier. It follows the review agent's shape — deterministic context → one model call →
+strict validate → fallback — with two deliberate departures:
+
+1. **The model writes the answer.** `coachContext(position)` rebuilds a `state`-shaped object
+   from the browser's serialized subset and runs the same `advisor.js` primitives the local
+   coach uses (`contextFor`, `bestDiscard`, `handSummary`, `claimAdvice`, `shanten`/`waits`) plus
+   `rulesContext().line`, producing an English fact list. The model answers the question *from*
+   those facts — it reasons about the position, it isn't just rephrasing a graded verdict. It's
+   fenced: reply must be `{"answer": string[]}` of ≤3 short lines, any miss → deterministic, and
+   every answer is flagged `modelAssisted` so `Coach.jsx` badges it "AI".
+2. **The deterministic fallback is minimal** — a fixed "couldn't work that out" line, not a
+   re-run of the local `ask()`. By the time a question escalates this far, the frontend's `ask()`
+   has already returned its guided fallback (that's *why* it escalated), so re-deriving it
+   server-side just echoes the same text. The client keeps `ask()` as the true offline floor:
+   `answerFromModel` returns `null` on any failure and `askWithModel` returns the local result.
+
+Escalation order is now: local regex → keyword score → classify-intent → **coach-answer** →
+`fallback()`. All four tiers past the first are optional and independently gated (`ask()` alone
+if nothing is configured). The new Lambda mirrors `reviewHand.ts` (validate `question` ≤300,
+clamp `position` arrays, reuse `agentModelId` / Nova Lite, same throttle + concurrency + budget +
+CORS + 5xx alarm — no new CDK knobs). Backend tests only cover the handler contract (400s + "200
+with a well-formed answer"); the agent's model path is tested in `agents/test/coachAnswer.test.js`
+because `@kaki/agents` resolves its own AWS SDK copy and can't be mocked from the backend package
+— the same reason `reviewHand.ts` has no backend unit test.
+
+Deploy + `VITE_COACH_ANSWER_URL` needed to make it live.
+
+### PR #26 review — grounding + all claim options (comments 1 & 2)
+
+- [x] `coachContext()` — facts are now `{ id, text }[]` (`f0`, `f1`, …). Emits one fact per
+      entry in `state.claimOptions`, not just `[0]` — one discard can offer several chow shapes
+      with different advice (`melds.js` `getClaimsFor`), so "which chow?" needs them all.
+- [x] Model contract → `{ answer: [{ refs: string[], text: string }] }`. `isCoachAnswerShape`
+      requires each line carry ≥1 non-empty ref string. `normalizeCoachAnswer` drops refs → `lines`.
+- [x] `runCoachAnswer()` — after the shape check, every cited ref must resolve to a real
+      `coachContext()` fact id, or the whole reply → deterministic. This is the boundary shape
+      validation can't give (a `{answer: string[]}`-valid reply could invent a rule).
+- [x] `prompt.js` — FACTS rendered as `f<n>: <text>`; system prompt requires per-line citations,
+      no invented ids.
+- [x] `agents/types/index.d.ts` (`CoachFact`), `agents/test/coachAnswer.test.js` (+3: unknown
+      ref → drop, partial grounding → drop, one-fact-per-claim-option), docs.
+- [x] frontend/backend untouched — `normalizeCoachAnswer` still returns `{title, lines,
+      modelAssisted}`, so `answerFromModel`'s check and the handler contract are unchanged.
+- [x] agents 39/39, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+**Comment 3 → separate PR.** Make `coachContext()` emit structured typed facts
+(`{ id, type, ...data }[]`) rather than English strings as the canonical evidence, so citations
+can be validated against typed data, facts filtered by question, and the same evidence back a
+future LangGraph tool — English becomes a prompt-time rendering only. Noted in `docs/mvp-notes.md`
+#7 and `agents/README.md`.

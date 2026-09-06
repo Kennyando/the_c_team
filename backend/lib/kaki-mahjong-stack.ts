@@ -284,6 +284,29 @@ export class KakiMahjongStack extends cdk.Stack {
       }),
     );
 
+    // The help-coach answer agent (@kaki/agents). Same posture again: one Bedrock call whose
+    // reply is strictly shape-checked, any failure degrading to a fixed model-free answer (the
+    // frontend's local coach is the real offline floor). Reuses `agentModelId` — the coach reads
+    // the position and answers in prose, which wants the same capability as the review, not the
+    // one-token classifier's Micro. Shares this route's rate caps and the Budget below.
+    const coachAnswerFn = new lambdaNode.NodejsFunction(this, "CoachAnswerFn", {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(15), // one model call, then a shape check; comfortably under this
+      logRetention: logs.RetentionDays.ONE_WEEK,
+      bundling: { minify: true, sourceMap: true },
+      entry: path.join(__dirname, "..", "lambda", "coachAnswer.ts"),
+      environment: { AGENT_MODEL_ID: agentModelId },
+      reservedConcurrentExecutions,
+    });
+
+    coachAnswerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: invokeResources(agentModelId),
+      }),
+    );
+
     const httpApi = new apigwv2.HttpApi(this, "CoachApi", {
       apiName: `kaki-mahjong-coach-${envName}`,
       corsPreflight: {
@@ -306,6 +329,11 @@ export class KakiMahjongStack extends cdk.Stack {
       path: "/review-hand",
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2i.HttpLambdaIntegration("ReviewHandIntegration", reviewHandFn),
+    });
+    httpApi.addRoutes({
+      path: "/coach-answer",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2i.HttpLambdaIntegration("CoachAnswerIntegration", coachAnswerFn),
     });
 
     new apigwv2.HttpStage(this, "CoachApiDefaultStage", {
@@ -441,6 +469,7 @@ export class KakiMahjongStack extends cdk.Stack {
     new cdk.CfnOutput(this, "WebSocketUrl", { value: stage.url });
     new cdk.CfnOutput(this, "ClassifyIntentUrl", { value: `${httpApi.apiEndpoint}/classify-intent` });
     new cdk.CfnOutput(this, "ReviewHandUrl", { value: `${httpApi.apiEndpoint}/review-hand` });
+    new cdk.CfnOutput(this, "CoachAnswerUrl", { value: `${httpApi.apiEndpoint}/coach-answer` });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "AssetsBucketName", { value: assetsBucket.bucketName });

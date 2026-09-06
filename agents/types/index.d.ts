@@ -26,6 +26,39 @@ export interface RunReviewInput {
 
 export function runReview(input?: RunReviewInput): Promise<ReviewResult>;
 
+export interface CoachAnswerResult {
+  /** Always "Coach" — the same shape a local coach answer has, so the UI needs no special case. */
+  title: string;
+  /** 1–3 short lines answering the question. */
+  lines: string[];
+  /** true when a model wrote it, false for the fixed deterministic fallback. */
+  modelAssisted: boolean;
+}
+
+export interface RunCoachAnswerInput {
+  /** The browser's serialized `state` subset. Untrusted; every field is guarded. */
+  position?: Record<string, unknown>;
+  /** The player's typed question. */
+  question?: string;
+  /** Defaults to true. false forces the deterministic answer. */
+  useModel?: boolean;
+}
+
+export function runCoachAnswer(input?: RunCoachAnswerInput): Promise<CoachAnswerResult>;
+
+export interface CoachFact {
+  /** Stable id (`f<index>`) a model answer cites to show which fact a line rests on. */
+  id: string;
+  text: string;
+}
+export interface CoachContext {
+  facts: CoachFact[];
+  phase: string;
+  yourTurn: boolean;
+  wallCount: number;
+}
+export function coachContext(position: Record<string, unknown>): CoachContext;
+
 export interface DecisionFact {
   /** Stable id (`d<index>`) so a grounding check can cite which decision a review bullet is about. */
   id: string;

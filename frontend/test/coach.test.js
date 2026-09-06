@@ -305,6 +305,86 @@ test('askWithModel re-reads state after the classify round trip, not the state f
   }
 });
 
+// --- model-assisted fallback: the coach-answer tier ------------------------------------------
+
+test('askWithModel escalates to the coach agent only when the classifier places nothing', async () => {
+  const s = state();
+  const originalFetch = globalThis.fetch;
+  let coachBody = null;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('classify')) return { ok: true, json: async () => ({ intent: 'fallback' }) };
+    if (String(url).includes('coach')) {
+      coachBody = JSON.parse(opts.body);
+      return {
+        ok: true,
+        json: async () => ({ answer: { title: 'Coach', lines: ['Chase it — you are close.'], modelAssisted: true } }),
+      };
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+  try {
+    const answer = await askWithModel('what would a pro do here', () => s, {
+      classifyUrl: 'https://classify.invalid',
+      coachUrl: 'https://coach.invalid',
+    });
+    assert.equal(answer.intent, 'model.coach');
+    assert.equal(answer.modelAssisted, true);
+    assert.deepEqual(answer.lines, ['Chase it — you are close.']);
+    // It POSTs the question and a position, never opponents' hands.
+    assert.equal(coachBody.question, 'what would a pro do here');
+    assert.ok(Array.isArray(coachBody.position.hand));
+    assert.equal(coachBody.position.hand.length, s.players[0].hand.length);
+    assert.equal(coachBody.position.melds.length, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a malformed or failed coach-agent reply falls through to the local guided answer', async () => {
+  const s = state();
+  const originalFetch = globalThis.fetch;
+  for (const coachRes of [
+    { ok: true, json: async () => ({ answer: { title: 'Coach', lines: 'not an array' } }) },
+    { ok: false },
+  ]) {
+    globalThis.fetch = async (url) => (String(url).includes('coach') ? coachRes : { ok: true, json: async () => ({ intent: 'fallback' }) });
+    try {
+      const answer = await askWithModel('what is the meaning of it all', () => s, {
+        classifyUrl: 'https://classify.invalid',
+        coachUrl: 'https://coach.invalid',
+      });
+      assert.equal(answer.intent, 'fallback');
+      assert.deepEqual(answer, ask('what is the meaning of it all', s));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+});
+
+test('the coach agent is not consulted once the classifier has placed the question', async () => {
+  const s = state();
+  const originalFetch = globalThis.fetch;
+  let coachCalled = false;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('coach')) {
+      coachCalled = true;
+      return { ok: true, json: async () => ({ answer: { title: 'x', lines: ['y'] } }) };
+    }
+    return { ok: true, json: async () => ({ intent: 'rules.pong' }) };
+  };
+  try {
+    const answer = await askWithModel('uhh the three-of-a-kind thing', () => s, {
+      classifyUrl: 'https://classify.invalid',
+      coachUrl: 'https://coach.invalid',
+    });
+    assert.equal(answer.intent, 'rules.pong');
+    assert.equal(answer.modelAssisted, true);
+    assert.equal(coachCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("coach.js's intents never drift from the backend's classifier catalogue", () => {
   // backend/shared/intents.json is what classifyIntent.ts actually sends to Bedrock — it is a
   // separate file in a separate (TypeScript) package, so nothing forces it to track INTENTS here
