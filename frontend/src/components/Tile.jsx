@@ -47,6 +47,11 @@ export default function Tile({ tile, onClick, small = false, justDrawn = false, 
 }
 
 /** A face-down tile in an opponent's hand. */
-export function TileBack() {
-  return <span className="tile-back" aria-hidden="true" />;
+export function TileBack({ small = false }) {
+  return (
+    <span
+      className={`tile-back${small ? ' tile-back-small' : ''}`}
+      aria-hidden="true"
+    />
+  );
 }
