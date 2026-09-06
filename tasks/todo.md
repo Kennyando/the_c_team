@@ -2807,3 +2807,16 @@ Follow-up on the annotated screenshot, same branch / PR #36.
 - **Edge racks** — the side columns are at the table edge now and fully visible, vertically centred
   on the seat.
 - Tests: `App.test.jsx` gained the Discards-panel test and switched the pill test to fake timers.
+
+## Round 3 — default to the top-down view + animal tiles (same branch / PR #36)
+
+- [x] **R3-1. Flat (top-down) view is the default.** `App.jsx` `display.tableView` starts `'flat'`
+      instead of `'seated'`. Settings still switches it. `docs/mvp-notes.md` updated.
+- [x] **R3-2. Animal tiles on by default.** `App.jsx` starts its `rules` (and the first `newGame`)
+      from `START_RULES = { ...DEFAULT_RULES, includeAnimals: true }` — a frontend-only override,
+      so the shared engine/agent `DEFAULT_RULES` (and every test that spreads it) stay at 144.
+      Settings' house-rules toggle still turns it off. `docs/mvp-notes.md` updated.
+- [x] **R3-3. Discard overlap is fine now.** Left as-is — with the Discards panel for the precise
+      read, the felt piles can overlap a meld or plate without it mattering; no extra spreading.
+- [x] Verify: 111 node + 25 component green, `npm run build` clean. Browser: table opens flat with
+      animal bonus tiles (貓/鼠/雞/蟲) dealt; `App.test.jsx` asserts both defaults.

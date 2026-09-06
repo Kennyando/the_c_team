@@ -7,6 +7,10 @@ import { chooseDiscard, chooseClaim, chooseTurnAction } from './game/bots.js';
 import { DEFAULT_RULES } from './game/scoring.js';
 import { tileName } from './game/tiles.js';
 
+// The app starts a table with the animal tiles in (a Singapore house rule the engine leaves off by
+// default); Settings can still turn them back off.
+const START_RULES = { ...DEFAULT_RULES, includeAnimals: true };
+
 import Table from './components/Table.jsx';
 import Hand from './components/Hand.jsx';
 import { TileStyleProvider } from './components/Tile.jsx';
@@ -72,12 +76,12 @@ export default function App() {
   // two destinations get a topbar with a Home button so there's always a way back.
   const [screen, setScreen] = useState('home');
 
-  const [rules, setRules] = useState(DEFAULT_RULES);
+  const [rules, setRules] = useState(START_RULES);
   const [display, setDisplay] = useState(() => ({
     scale: fitScale(), scaleAuto: true, contrast: false, voice: false,
-    tileStyle: 'traditional', coachHints: false, tableView: 'seated',
+    tileStyle: 'traditional', coachHints: false, tableView: 'flat',
   }));
-  const [state, setState] = useState(() => newGame(DEFAULT_RULES, 0));
+  const [state, setState] = useState(() => newGame(START_RULES, 0));
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showReview, setShowReview] = useState(false);

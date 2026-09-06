@@ -57,6 +57,17 @@ test('the narration pill shows the latest line, then hides itself after a second
   }
 });
 
+test('a new table starts flat (top-down) with the animal tiles in', () => {
+  const { container } = render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+
+  expect(container.querySelector('main.table').className).toMatch(/view-flat/);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  const animals = screen.getByLabelText(/animal tiles/);
+  expect(animals.checked).toBe(true);
+});
+
 test('the Discards panel lists every player\'s thrown tiles', () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
