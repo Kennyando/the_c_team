@@ -2688,3 +2688,44 @@ puts the board back to each decision and navigates between them.
 - Deep-link each "Next time" bullet to open GameReview at that decision (needs `fact.index`
   through `assembleReview`).
 - Full move-by-move scrubbing (needs a seeded RNG + move log).
+
+---
+
+# Follow-up: root README (setup, install, project summary, dependency manifests)
+
+The root `README.md` is a 2-line stub. Root `requirements.txt` is an empty leftover from a
+Python scaffold (`.gitignore` is the GitHub Python template) and is misleading — this repo is
+a JS/TS monorepo with no Python. Goal: make the root README the front door.
+
+## Todo
+
+- [x] 1. New branch `feature/root-readme` off `main`
+- [x] 2. Rewrite `README.md`: setup & installation first (Node 18+, per-workspace `npm install`,
+      `cd frontend && npm run dev` -> http://localhost:5173); short project summary; repo layout;
+      "where dependencies are declared" — the requirements.txt equivalent is each workspace's own
+      `package.json` + `package-lock.json` (table of all three); env/config via the `.env.template`
+      files; per-workspace `npm test`.
+- [x] 3. Delete the empty stale root `requirements.txt` (user confirmed it is unused).
+- [x] 4. Commit, push, open PR against `main`.
+
+## Review
+
+### What changed
+
+- **`README.md`** rewritten from the 2-line stub into the repo front door, in the
+  order requested: (1) Setup & installation — prerequisites, per-workspace
+  `npm install` (frontend / agents / backend, with install order and why),
+  `npm run dev` -> localhost:5173, per-workspace `npm test`, and the optional
+  `.env` files; (2) a short "What this is" summary — single-player Singapore
+  Mahjong vs 3 bots, accessibility-first UI, local help coach + optional AWS
+  model tiers, post-hand review; (3) repository layout table (`frontend/`,
+  `agents/`, `backend/`, `docs/`, `tasks/`); (4) "Where dependencies are
+  declared" — the `requirements.txt` equivalent is each workspace's own
+  `package.json` + `package-lock.json`, in a table.
+- **`requirements.txt`** (empty, root, Python-scaffold leftover) deleted — the
+  README now documents the real Node manifests, so a contradictory empty file is
+  worse than none. `.gitignore` still carries the old Python template's rules;
+  left untouched (out of scope, harmless).
+
+Docs only — no code, config or dependency changes.
+
