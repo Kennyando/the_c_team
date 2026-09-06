@@ -8,6 +8,7 @@
 // the ref check is what enforces it.
 
 import { MAX_COACH_LINE, MAX_COACH_LINES } from '../schema.js';
+import { renderFact } from '../context/coachContext.js';
 
 export const SYSTEM_PROMPT = [
   'You are the in-game help coach for someone learning Singapore Mahjong. You will be given a',
@@ -35,7 +36,7 @@ export const SYSTEM_PROMPT = [
 export function buildUserPrompt(ctx, question) {
   return [
     'FACTS (cite these by id):',
-    ...ctx.facts.map((f) => `${f.id}: ${f.text}`),
+    ...ctx.facts.map((f) => `${f.id}: ${renderFact(f)}`),
     '',
     `QUESTION: ${question}`,
   ].join('\n');

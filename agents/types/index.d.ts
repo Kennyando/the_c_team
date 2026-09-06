@@ -46,11 +46,41 @@ export interface RunCoachAnswerInput {
 
 export function runCoachAnswer(input?: RunCoachAnswerInput): Promise<CoachAnswerResult>;
 
-export interface CoachFact {
-  /** Stable id (`f<index>`) a model answer cites to show which fact a line rests on. */
-  id: string;
-  text: string;
-}
+/**
+ * One structured fact about the position. `id` (`f<index>`) is what a model answer cites; `type`
+ * discriminates the payload. `renderFact()` turns one into the sentence the prompt shows.
+ */
+export type CoachFact = { id: string } & (
+  | { type: "rules"; active: string[]; limit: number }
+  | { type: "seat"; seatWind: string; dealer: boolean; prevailingWind: string }
+  | { type: "wall"; count: number }
+  | { type: "distance"; shanten: number }
+  | { type: "waits"; tiles: string[] }
+  | {
+      type: "discardPick";
+      tile: string;
+      shantenAfter: number;
+      reason: string | null;
+      alternatives: string[];
+    }
+  | {
+      type: "claimOption";
+      claimType: string;
+      tiles: string[];
+      onTile: string;
+      verdict: string;
+      advice: string;
+    }
+  | {
+      type: "handValue";
+      tile: string;
+      tai: number;
+      points: number;
+      pattern: string | null;
+      limited: boolean;
+    }
+);
+
 export interface CoachContext {
   facts: CoachFact[];
   phase: string;
@@ -58,6 +88,7 @@ export interface CoachContext {
   wallCount: number;
 }
 export function coachContext(position: Record<string, unknown>): CoachContext;
+export function renderFact(fact: CoachFact): string;
 
 export interface DecisionFact {
   /** Stable id (`d<index>`) so a grounding check can cite which decision a review bullet is about. */

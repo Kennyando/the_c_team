@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 
 import { runCoachAnswer } from '../src/coach/coachAnswer.js';
-import { coachContext } from '../src/context/coachContext.js';
+import { coachContext, renderFact } from '../src/context/coachContext.js';
 
 // --- fixtures -------------------------------------------------------------------------------
 
@@ -78,6 +78,8 @@ test('the model prompt lists the facts by id and asks for citations', async () =
   assert.match(userPrompt, /cite these by id/);
   assert.match(userPrompt, /^f0: /m);
   assert.match(userPrompt, /QUESTION: am I close\?/);
+  // Every fact rendered to a real sentence — no `undefined` / `[object Object]` from a missed type.
+  assert.doesNotMatch(userPrompt, /undefined|\[object Object\]/);
 });
 
 test('a reply wrapped in a ```json fence is still parsed and used', async () => {
@@ -157,31 +159,49 @@ test('a malformed position does not throw — it still answers', async () => {
   assert.ok(result.lines.length > 0);
 });
 
-// --- coachContext: every legal claim, not just the first ------------------------------------
+// --- coachContext: structured facts --------------------------------------------------------
 
-test('coachContext emits one fact per claim option, each with an id', () => {
+test('facts are structured objects (id + type + data), not English strings, and every type renders', () => {
+  const { facts } = coachContext(POSITION);
+  assert.deepEqual(
+    facts.map((f) => f.id),
+    facts.map((_, i) => `f${i}`),
+  );
+  for (const f of facts) {
+    assert.equal(typeof f.type, 'string');
+    assert.equal(f.text, undefined, `fact ${f.id} should carry structured data, not a text string`);
+    assert.ok(renderFact(f).length > 0, `renderFact has no case for ${f.type}`);
+  }
+  // Spot-check a couple of payloads by field, no string matching.
+  const distance = facts.find((f) => f.type === 'distance');
+  assert.equal(distance.shanten, 0); // POSITION is a ready hand
+  const rules = facts.find((f) => f.type === 'rules');
+  assert.ok(Array.isArray(rules.active) && typeof rules.limit === 'number');
+});
+
+test('coachContext emits one structured fact per claim option', () => {
   const claimPosition = {
     ...POSITION,
     hand: ['b3', 'b4', 'b6', 'b7', 'c1', 'c2', 'c3', 'd4', 'd5', 'd6', 'we', 'we', 'ws'],
     phase: 'claim',
     turn: 2,
     pending: { tile: 'b5', by: 1 },
-    // Two chow shapes for b5 (b3-b4 and b6-b7), plus a pong the hand can't actually back — the
-    // point is that coachContext surfaces every entry, not that they're all sensible.
+    // Two chow shapes for b5 (b3-b4-b5 and b5-b6-b7).
     claimOptions: [
       { type: 'chow', tiles: ['b3', 'b4', 'b5'], seat: 0 },
       { type: 'chow', tiles: ['b5', 'b6', 'b7'], seat: 0 },
     ],
   };
-  const { facts } = coachContext(claimPosition);
-  const claimFacts = facts.filter((f) => /is on offer/.test(f.text));
-  assert.equal(claimFacts.length, 2, 'both chow options should be represented');
-  // The two shapes are distinguished by their outer tiles (3 Bamboo vs 7 Bamboo).
-  assert.ok(claimFacts.some((f) => /3 Bamboo/.test(f.text)));
-  assert.ok(claimFacts.some((f) => /7 Bamboo/.test(f.text)));
-  // Ids are stable and unique.
-  assert.deepEqual(
-    facts.map((f) => f.id),
-    facts.map((_, i) => `f${i}`),
-  );
+  const claims = coachContext(claimPosition).facts.filter((f) => f.type === 'claimOption');
+  assert.equal(claims.length, 2, 'both chow options should be represented');
+  assert.deepEqual(claims.map((f) => f.tiles).sort(), [
+    ['b3', 'b4', 'b5'],
+    ['b5', 'b6', 'b7'],
+  ]);
+  for (const c of claims) {
+    assert.equal(c.claimType, 'chow');
+    assert.equal(c.onTile, 'b5');
+    assert.ok(['yes', 'no'].includes(c.verdict));
+    assert.equal(typeof c.advice, 'string');
+  }
 });

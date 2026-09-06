@@ -2430,3 +2430,21 @@ Deploy + `VITE_COACH_ANSWER_URL` needed to make it live.
 can be validated against typed data, facts filtered by question, and the same evidence back a
 future LangGraph tool — English becomes a prompt-time rendering only. Noted in `docs/mvp-notes.md`
 #7 and `agents/README.md`.
+
+### Comment 3 — structured typed facts (PR after #26)
+
+- [x] `coachContext()` returns `{ id, type, ...data }[]` — types `rules` / `seat` / `wall` /
+      `distance` / `waits` / `discardPick` / `claimOption` / `handValue`, each holding the raw
+      values (tai/points/tile ids/shanten/rule keys/verdict). No `text` field on the fact.
+      (`discardPick` folds in what was a separate `alternatives` fact.)
+- [x] `renderFact(f)` (also in `coachContext.js`, exported) — the inverse: one typed fact → one
+      beginner sentence. `buildUserPrompt` calls it; prompt output is byte-identical to before.
+- [x] `agents/src/index.js` exports `renderFact`; `agents/types/index.d.ts` `CoachFact` is now a
+      discriminated union + `renderFact` decl.
+- [x] `runCoachAnswer` grounding unchanged (`ctx.facts.map(f => f.id)` still works). Rule-set /
+      field-level checks on cited facts are now tractable — left as the remaining follow-up in
+      mvp-notes #7.
+- [x] Tests: assert fact `id`/`type`/fields directly (no string matching); every emitted type
+      must `renderFact` to a non-empty string; prompt has no `undefined` / `[object Object]`.
+- [x] frontend/backend untouched. agents 40/40, frontend 108/108 + 13/13, backend 31/31, `tsc` +
+      `cdk synth` clean.

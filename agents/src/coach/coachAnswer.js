@@ -4,12 +4,12 @@
 //                                                                              │
 //                                                         deterministicCoachAnswer ◄──┘  (on ANY failure)
 //
-// The model reads facts our own advisor.js already computed against this table's house rules and
-// answers the player's question in words, citing per line the fact ids it rests on. If there is
-// no model, or it errors, or its reply is not `{ "answer": [{ refs, text }] }`, or a line cites
-// a fact id that coachContext() did not produce, a fixed deterministic answer is returned instead
-// — and, because the frontend's local coach is the real offline floor, the player still always
-// gets a useful reply.
+// The model reads the structured facts our own advisor.js computed against this table's house
+// rules (rendered to sentences by buildUserPrompt) and answers the player's question in words,
+// citing per line the fact ids it rests on. If there is no model, or it errors, or its reply is
+// not `{ "answer": [{ refs, text }] }`, or a line cites a fact id that coachContext() did not
+// produce, a fixed deterministic answer is returned instead — and, because the frontend's local
+// coach is the real offline floor, the player still always gets a useful reply.
 
 import { coachContext } from '../context/coachContext.js';
 import { callModel, parseJsonObject } from '../model.js';

@@ -1,16 +1,19 @@
-// The facts the coach agent answers from: the live position restated as plain-English lines,
-// each with a stable id (`f0`, `f1`, …).
+// The facts the coach agent answers from: the live position as structured, typed objects, each
+// with a stable id (`f0`, `f1`, …).
+//
+// The objects — not any English text — are the canonical evidence. `renderFact()` turns one into
+// a beginner-friendly sentence, and `buildUserPrompt()` calls it when assembling the prompt, so
+// the wording can change without touching what a model answer is allowed to cite. Keeping the
+// data structured also lets `runCoachAnswer()` check citations against real fields (today just
+// "the id exists"; a rule-set check on scoring claims is the next step — see docs/mvp-notes.md
+// #7).
 //
 // Like decisionContext.js, this makes no judgement of its own — it runs the same `advisor.js`
-// primitives the frontend's local coach already uses (tile efficiency, hand distance, hand
-// value, claim advice), all of which grade against this table's own house rules. The model that
-// consumes these lines phrases an answer and must cite, per line, the fact ids it rests on;
-// `runCoachAnswer()` drops any answer whose citations don't resolve to a fact built here.
-//
-// Input is untrusted — it arrives over HTTP as a `position` subset the browser serialized — so
-// `rebuildState()` guards every field and hands `advisor.js` a well-formed `state`-shaped object
-// with sensible defaults. Opponent hands are never sent and never needed: `contextFor()` only
-// reads the deciding player's hand plus every seat's *exposed* melds/bonus and the discards.
+// primitives the frontend's local coach uses, all of which grade against this table's house
+// rules. Input is untrusted (it arrives over HTTP as a `position` subset the browser serialized),
+// so `rebuildState()` guards every field. Opponent hands are never sent and never needed:
+// `contextFor()` reads the deciding player's hand plus every seat's *exposed* melds/bonus and the
+// discards.
 
 import {
   contextFor,
@@ -27,6 +30,7 @@ import {
 import { rulesContext } from './rulesContext.js';
 
 const WIND_NAMES = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
+const wind = (w) => WIND_NAMES[w] || w;
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 const seatOf = (lists, i) => (Array.isArray(lists[i]) ? lists[i] : []);
@@ -68,66 +72,119 @@ function rebuildState(position) {
 
 /**
  * @param {Object} position  the browser's serialized `state` subset (see frontend serializePosition)
- * @returns {{ facts: {id:string,text:string}[], phase: string, yourTurn: boolean, wallCount: number }}
+ * @returns {{ facts: import('../../types/index.d.ts').CoachFact[], phase: string, yourTurn: boolean, wallCount: number }}
  */
 export function coachContext(position) {
   const state = rebuildState(position);
   const you = state.players[0];
 
   const facts = [];
-  const fact = (text) => facts.push({ id: `f${facts.length}`, text });
+  const add = (type, data) => facts.push({ id: `f${facts.length}`, type, ...data });
 
-  fact(rulesContext(state.rules).line);
+  const rules = rulesContext(state.rules);
+  add('rules', { active: rules.active, limit: rules.limit });
 
-  const seatWind = seatWindOf(0, state.dealer);
-  fact(
-    `You sit ${WIND_NAMES[seatWind] || seatWind}${state.dealer === 0 ? ' and you are the dealer' : ''}. ` +
-      `The prevailing wind is ${WIND_NAMES[state.prevailingWind] || state.prevailingWind}.`,
-  );
-  fact(`${state.wall.length} tiles are left in the wall.`);
+  add('seat', {
+    seatWind: seatWindOf(0, state.dealer),
+    dealer: state.dealer === 0,
+    prevailingWind: state.prevailingWind,
+  });
+
+  add('wall', { count: state.wall.length });
 
   const yourTurn = state.phase === 'act' && state.turn === 0;
   const inClaim = state.phase === 'claim' && state.claimOptions.length > 0 && !!state.pending;
 
   if (you.hand.length) {
-    fact(`Your hand is ${describeDistance(shanten(you.hand, you.melds))}.`);
+    add('distance', { shanten: shanten(you.hand, you.melds) });
     const ready = waits(you);
-    if (ready.length) fact(`You are waiting on ${ready.map(tileName).join(' or ')}.`);
+    if (ready.length) add('waits', { tiles: ready });
   }
 
   if (yourTurn && you.hand.length) {
     const advice = bestDiscard(you, contextFor(state, you));
-    const why = advice.reasons[0] ? ` ${advice.reasons[0]}` : '';
-    fact(
-      `The coach would discard ${tileName(advice.tile)} — it leaves you ` +
-        `${describeDistance(advice.shantenAfter)}.${why}`,
-    );
-    if (advice.alternatives.length) {
-      fact(`${advice.alternatives.map(tileName).join(' and ')} would be just as good.`);
-    }
+    add('discardPick', {
+      tile: advice.tile,
+      shantenAfter: advice.shantenAfter,
+      reason: advice.reasons[0] ?? null,
+      alternatives: advice.alternatives,
+    });
   }
 
   if (inClaim) {
     // Every legal claim, not just the first — one discard can offer several (e.g. two or three
-    // chow shapes) and they get different advice. "Which chow should I take?" needs them all.
-    const tile = tileName(state.pending.tile);
+    // chow shapes) and they get different advice.
     for (const claim of state.claimOptions) {
       const advice = claimAdvice(you, claim, state.pending.tile);
-      const shape = claim.tiles && claim.tiles.length ? ` (${claim.tiles.map(tileName).join('-')})` : '';
-      fact(`A ${claim.type} on ${tile}${shape} is on offer. The coach says: ${advice.lines[0]}`);
+      add('claimOption', {
+        claimType: claim.type,
+        tiles: Array.isArray(claim.tiles) ? claim.tiles : [],
+        onTile: state.pending.tile,
+        verdict: advice.verdict,
+        advice: advice.lines[0],
+      });
     }
   }
 
   const summary = handSummary(you, state);
   if (summary.best) {
-    const from = summary.best.score.items?.[0]
-      ? ` from ${summary.best.score.items[0].name.toLowerCase()}`
-      : '';
-    fact(
-      `If you win on ${tileName(summary.best.tile)} it scores ${summary.best.score.tai} tai ` +
-        `(pays ${summary.best.score.points})${from}.`,
-    );
+    add('handValue', {
+      tile: summary.best.tile,
+      tai: summary.best.score.tai,
+      points: summary.best.score.points,
+      pattern: summary.best.score.items?.[0]?.name ?? null,
+      limited: !!summary.best.score.limited,
+    });
   }
 
   return { facts, phase: state.phase, yourTurn, wallCount: state.wall.length };
+}
+
+/**
+ * Render one structured fact as a beginner-friendly sentence for the prompt. Pure; the inverse
+ * of what `coachContext()` builds. An unknown type renders as `''` — `buildUserPrompt` would
+ * then emit a bare id, which the "every fact renders" test guards against.
+ *
+ * @param {import('../../types/index.d.ts').CoachFact} f
+ * @returns {string}
+ */
+export function renderFact(f) {
+  switch (f.type) {
+    case 'rules':
+      return f.active.length
+        ? `This table scores: ${f.active.join('; ')}. Limit ${f.limit} tai.`
+        : `This table is playing a plain game with a ${f.limit} tai limit.`;
+    case 'seat':
+      return (
+        `You sit ${wind(f.seatWind)}${f.dealer ? ' and you are the dealer' : ''}. ` +
+        `The prevailing wind is ${wind(f.prevailingWind)}.`
+      );
+    case 'wall':
+      return `${f.count} tiles are left in the wall.`;
+    case 'distance':
+      return `Your hand is ${describeDistance(f.shanten)}.`;
+    case 'waits':
+      return `You are waiting on ${f.tiles.map(tileName).join(' or ')}.`;
+    case 'discardPick': {
+      const why = f.reason ? ` ${f.reason}` : '';
+      const alt = f.alternatives.length
+        ? ` ${f.alternatives.map(tileName).join(' and ')} would be just as good.`
+        : '';
+      return (
+        `The coach would discard ${tileName(f.tile)} — it leaves you ` +
+        `${describeDistance(f.shantenAfter)}.${why}${alt}`
+      );
+    }
+    case 'claimOption': {
+      const shape = f.tiles.length ? ` (${f.tiles.map(tileName).join('-')})` : '';
+      return `A ${f.claimType} on ${tileName(f.onTile)}${shape} is on offer. The coach says: ${f.advice}`;
+    }
+    case 'handValue': {
+      const from = f.pattern ? ` from ${f.pattern.toLowerCase()}` : '';
+      const cap = f.limited ? ' (capped at the table limit)' : '';
+      return `If you win on ${tileName(f.tile)} it scores ${f.tai} tai (pays ${f.points})${from}${cap}.`;
+    }
+    default:
+      return '';
+  }
 }
