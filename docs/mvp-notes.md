@@ -214,9 +214,11 @@ These are deliberate MVP boundaries, not defects:
        clearly matches, all are kept.
      - the model must return `{ answer: [{ refs, text }] }` and cite, per line, the fact ids it
        rests on; `runCoachAnswer()` drops the whole reply unless every cited id was in the
-       (narrowed) prompt **and** no line names a scoring pattern this table does not play
-       (checked against the rules fact's own key list — `half flush` / `full flush` / `all pungs`
-       / `all chows`).
+       (narrowed) prompt, **and** no line names a scoring pattern this table does not play
+       (checked against the rules fact's key list — `half flush` / `full flush` / `all pungs` /
+       `all chows`), **and** no line states a tai / point / wall-count number that a fact it
+       cited contradicts (bailing on any hedge word, any limit/cap context, or an ambiguous
+       count, to stay clear of false positives).
      - the answer is flagged so the UI badges it "AI"; any failure drops to the local guided
        fallback.
 
@@ -228,9 +230,11 @@ These are deliberate MVP boundaries, not defects:
    authenticated, appropriate for a same-table coach but worth revisiting if this ever needs real
    accounts.
 
-   The grounding is still existence + scoring-pattern level, not full entailment — a line can
-   cite a real fact and still misstate a *number* from it. Extending the field-level check to
-   tai / points / tile-count claims is the next step, and the typed facts make it mechanical.
+   The grounding is existence + rule-set + pinned-number level, not full semantic entailment: a
+   line that reasons *about* the facts (rather than stating a rule or copying a number) is taken
+   on the model's word. Tightening that further would mean either a second model pass to judge
+   entailment or much richer typed facts — neither is warranted for a last-resort help answer
+   that already degrades safely.
 8. **Discard advice now weighs hand value alongside speed, but mostly as a tie-breaker in
    practice — partially addressed.** `bestDiscard()`/`evaluateDiscard()` in `advisor.js` blend
    resulting shanten with `estimateValue()`: an exact expected-value calculation at tenpai (real

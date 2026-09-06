@@ -14,14 +14,15 @@ just phrase graded facts. It is still fenced:
 - `relevantFacts(facts, question)` narrows the situational facts to what the question is about;
   core facts (rules / seat / wall / distance / waits) are always kept.
 - the reply must be `{ answer: [{ refs, text }] }`; `runCoachAnswer()` drops it unless every
-  cited id was in the (narrowed) prompt **and** no line names a scoring pattern the table does
-  not play (checked against the rules fact's `keys`, not the prose).
+  cited id was in the (narrowed) prompt, no line names a scoring pattern the table does not play
+  (checked against the rules fact's `keys`, not the prose), and no line states a tai / point /
+  wall-count number a cited fact contradicts (skipping hedges and limit-context to avoid false
+  positives).
 - any failure → a fixed deterministic answer (the frontend's own local coach is the real
   offline floor).
 
-Grounding is existence + scoring-pattern level, not full entailment — a line can still misstate a
-tai/point/tile *number* from a fact it correctly cites. The typed facts make that check
-mechanical; see `docs/mvp-notes.md` #7.
+Grounding is existence + rule-set + pinned-number level, not full entailment — a line that
+*reasons about* the facts is taken on trust. See `docs/mvp-notes.md` #7.
 
 ## The shape every agent has
 
