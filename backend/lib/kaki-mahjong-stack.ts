@@ -203,17 +203,23 @@ export class KakiMahjongStack extends cdk.Stack {
     // Gateway throttle below caps the request rate before it even reaches
     // Lambda. Neither is a ceiling on total spend — a caller sitting at the
     // limit continuously, forever, still accumulates unbounded cost over
-    // time, just slowly. The AWS Budget below is the actual dollar-amount
-    // guardrail. Both throttle numbers are intentionally conservative
-    // defaults for a hackathon demo — override with `-c coachApiConcurrency=`,
+    // time, just slowly. The AWS Budget below is the closest thing to a
+    // dollar-amount guardrail, but it only *alerts* — it does not stop
+    // spend. Both throttle numbers are intentionally conservative defaults
+    // for a hackathon demo — override with `-c coachApiConcurrency=`,
     // `-c coachApiRateLimit=`, `-c coachApiBurstLimit=` if real usage needs
     // more headroom.
     //
-    // `-c coachApiConcurrency=0` omits the reserved-concurrency cap entirely:
-    // a restricted account (e.g. a workshop sandbox) can have a Lambda
-    // concurrency limit low enough that reserving *any* leaves fewer than the
-    // 10 unreserved executions AWS requires account-wide, which fails the
-    // deploy. The API Gateway throttle and the Budget still bound cost.
+    // `-c coachApiConcurrency=0` omits the reserved-concurrency cap entirely.
+    // This is a *deployment* escape hatch, not a cost-neutral one: it trades
+    // away the only hard per-function ceiling on simultaneous invocations
+    // (and the isolation that keeps one route from consuming the whole
+    // account's Lambda concurrency). Use it only where reserving any is
+    // impossible — a restricted account (e.g. a workshop sandbox) can have a
+    // Lambda concurrency limit low enough that reserving *any* leaves fewer
+    // than the 10 unreserved executions AWS requires account-wide, failing
+    // the deploy. With `0`, the request-rate throttle and the alerting-only
+    // Budget are all that remain — not an equivalent ceiling.
     const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
     const reservedConcurrentExecutions = coachApiConcurrency > 0 ? coachApiConcurrency : undefined;
 

@@ -152,14 +152,19 @@ itself, not in an auth check:
 - **API Gateway throttling** on `CoachApi`'s stage — `rateLimit: 2` req/s,
   `burstLimit: 5` by default. Override with `-c coachApiRateLimit=` /
   `-c coachApiBurstLimit=` if a real demo needs more headroom.
-- **Reserved concurrency of 2** on `ClassifyIntentFn` and `ReviewHandFn` — a
-  hard ceiling on how many invocations can run at once, independent of the
-  throttle above. Override with `-c coachApiConcurrency=`. Set
-  `-c coachApiConcurrency=0` to drop it entirely: a restricted account (e.g. a
-  workshop sandbox) can have a Lambda concurrency limit low enough that
-  reserving *any* leaves fewer than the 10 unreserved executions AWS requires
-  account-wide, and `cdk deploy` fails with `decreases account's
-  UnreservedConcurrentExecution below its minimum value of [10]`.
+- **Reserved concurrency of 2** on `ClassifyIntentFn` and `ReviewHandFn` — the
+  only *hard* ceiling on how many invocations can run at once, independent of
+  the throttle above, and the only thing isolating these routes from
+  consuming the whole account's Lambda concurrency. Override with
+  `-c coachApiConcurrency=`.
+  - `-c coachApiConcurrency=0` **drops that hard cap entirely** — a deployment
+    escape hatch, not a cost-neutral one. Use it only where reserving any is
+    impossible: a restricted account (e.g. a workshop sandbox) can have a
+    Lambda concurrency limit low enough that reserving *any* leaves fewer than
+    the 10 unreserved executions AWS requires account-wide, and `cdk deploy`
+    fails with `decreases account's UnreservedConcurrentExecution below its
+    minimum value of [10]`. With `0`, only the request-rate throttle and the
+    alerting-only Budget remain — those are not an equivalent ceiling.
 
 Both are deliberately conservative for a hackathon project on a small
 Bedrock budget, and both bound the *rate* of Bedrock calls — neither is a
@@ -172,13 +177,15 @@ that also means building a sign-in flow into the frontend, which is out of
 scope for what is currently a single-player, no-accounts MVP (see
 `docs/mvp-notes.md`'s known simplifications).
 
-- **An AWS Budget** is the actual dollar-amount guardrail: `-c
-  coachBudgetAlertEmail=you@example.com` provisions a monthly Budget scoped
-  to Bedrock cost that emails that address once spend crosses 80% of `-c
-  coachBudgetLimitUsd=` (default `20`). Unlike the throttle/concurrency
-  above, this is unset by default — `cdk synth`/`deploy` prints a warning if
-  it's missing, since this endpoint takes no credentials (see below) and is
-  reachable by anyone who has its URL.
+- **An AWS Budget** is the closest thing to a dollar-amount guardrail, but it
+  only *alerts* — it does not stop spend. `-c coachBudgetAlertEmail=you@example.com`
+  provisions a monthly Budget scoped to Bedrock cost that emails that address
+  once spend crosses 80% of `-c coachBudgetLimitUsd=` (default `20`). Unlike
+  the throttle/concurrency above, this is unset by default — `cdk synth`/`deploy`
+  prints a warning if it's missing, since this endpoint takes no credentials
+  (see below) and is reachable by anyone who has its URL. There is no hard
+  spending ceiling anywhere in this stack; sustained abuse accrues cost until
+  someone sees the alert and acts.
 
 ## Prerequisites
 
