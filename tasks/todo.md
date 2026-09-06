@@ -2268,3 +2268,49 @@ untouched — `oneThingToTry` is still a `string` everywhere outside the model r
 change on a clean hand or any non-model path.
 
 Follow-up unchanged: surface `ref` (now including the focus's) to `HandReview.jsx`.
+
+---
+
+# Make the local help coach robust — Phase 1
+
+Phase 1 of the approved two-phase plan (full plan:
+`~/.claude/plans/open-could-we-implement-floating-sonnet.md`). Phase 2 = a model coach agent
+layered on top; separate PR, needs a deploy.
+
+`VITE_CLASSIFY_INTENT_URL` is unset, so the coach never escalates to the model — it runs
+purely on `coach.js`'s regex patterns, which are narrow, so most natural phrasings hit
+`fallback()` ("I'm not sure about that one"). Add a keyword-score pass before giving up.
+Stays 100% offline; routes only to the existing rules-accurate handlers.
+
+- [x] `coach.js` — added a `keywords` array to each `INTENTS` entry (narrow, Mahjong-specific).
+- [x] `coach.js` — `ask()`: after the ordered regex loop misses, `guessIntent()` scores each
+      intent by keyword hits (whole-word for single words, phrase-substring for multi-word); the
+      first intent with score > 0 wins (ties keep INTENTS order → advice still beats rule).
+      Result tagged `matchedBy: 'keyword'`. A true zero still falls to `fallback()`.
+- [x] `coach.js` — widened a few patterns: `advice.discard` ("what do I do now", "my move",
+      "what now"), `advice.value` ("how much is this hand"), `rules.limit` ("biggest hand").
+- [x] No new intents, no backend change — `backend/shared/intents.json` + drift test untouched.
+- [x] `frontend/test/coach.test.js` — added "routes on its keywords" (dump/chuck→discard,
+      "worth anything"→value, "pile no one draws from"→wall, "quad"→kong, "house variant"→table,
+      "am I behind"→progress) and "does not drag an off-topic question" (weather / joke / "who
+      won last night" → fallback).
+- [x] Verified: `frontend` 104/104 node (was 102) + 13/13 component.
+
+### Review
+
+`ask()` gained one fallback stage between the regex loop and `fallback()`: `guessIntent(text)`
+tokenizes the question and scores every intent by keyword hits, returning the first non-zero
+scorer (INTENTS order breaks ties, so `advice.*` still beats `rules.*` for a shared word like
+"pong"). Keyword lists are deliberately short and Mahjong-specific — no generic words like
+"take", "play", "round", "most" — so a stray token can't misroute a question; "what is the
+weather like" / "tell me a joke" still reach `fallback`. A keyword hit is tagged
+`matchedBy: 'keyword'` on the answer (the UI can surface "best guess" later; `askWithModel`
+already treats any non-`fallback` intent as resolved, so it won't spend a network call on a
+keyword match).
+
+Scope: `coach.js` only (`INTENTS` gains `keywords`, `ask()` gains ~15 lines + a `guessIntent`
+helper + a `build` helper extracted from the existing loop body) and two new tests. Answer
+handlers, `INTENTS` ids, `QUICK_QUESTIONS`, the backend, and every other test are untouched.
+
+Phase 2 (model coach agent) is the separate follow-up in
+`~/.claude/plans/open-could-we-implement-floating-sonnet.md`.

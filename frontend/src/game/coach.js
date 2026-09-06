@@ -219,36 +219,78 @@ const STATIC = {
  * Intents in order — the first pattern to match wins.
  * Advice about *this* position is listed before the general rules, so "should I pong this?" is
  * answered about the tile on the table while "what does pong do?" gets the rule.
+ *
+ * `keywords` are a looser safety net: when no `patterns` entry matches, `ask()` scores each intent
+ * by how many of its keywords appear as whole words (or phrases) in the question and takes the
+ * clear winner. They are deliberately narrow and Mahjong-specific so a stray common word can't
+ * drag a question to the wrong intent; ties fall to whichever intent is listed first, so position
+ * advice still beats the rule for a shared term.
  */
 export const INTENTS = [
-  { id: 'advice.discard', answer: adviceDiscard, patterns: [
-    /what.*(should|do).*(discard|throw|play)/, /(best|optimal|right).*(play|move|discard|tile)/,
-    /which tile/, /what.*(get rid of|let go)/, /^(discard|throw)\??$/,
-  ] },
-  { id: 'advice.claim', answer: adviceClaim, patterns: [
-    /should i.*(pong|peng|chow|chi|kong|gang|call|take|claim)/,
-    /(worth|good idea).*(pong|chow|kong|calling)/, /(pong|chow|kong).*(this|it|that one)/,
-  ] },
-  { id: 'advice.progress', answer: adviceProgress, patterns: [
-    /how (close|near|far)/, /am i (close|near|ready|winning)/, /(tiles?|much).*(away|left to win)/,
-    /waiting (on|for)/, /can i win/,
-  ] },
-  { id: 'advice.value', answer: adviceValue, patterns: [
-    /(my|i).*(hand).*(worth|score|tai)/, /how (many|much).*(tai|points|worth).*(i|my|me)/,
-    /what.*my hand.*worth/, /score my hand/,
-  ] },
-  { id: 'rules.limit', answer: answerLimit, patterns: [/limit/, /maximum|max.*(tai|score|payout)/, /cap/] },
-  { id: 'rules.tai', answer: answerTai, patterns: [/\btai\b/, /scoring|score|points|payment|pay(s|ing)?\b/, /how much.*win/] },
-  { id: 'rules.table', answer: answerRules, patterns: [/house rules?/, /(what|which) rules/, /settings/] },
-  { id: 'rules.wall', answer: answerWall, patterns: [/\bwall\b/, /tiles? (left|remaining)/, /run out/, /\bdraw game\b/] },
-  { id: 'rules.seat', answer: answerSeat, patterns: [/(my )?seat/, /prevailing/, /which wind/, /\bwind\b/] },
-  { id: 'rules.dealer', answer: () => STATIC.dealer, patterns: [/dealer|banker/] },
-  { id: 'rules.pong', answer: () => STATIC.pong, patterns: [/\b(pong|peng|pung)\b/, /three of a kind/, /triplet/] },
-  { id: 'rules.chow', answer: () => STATIC.chow, patterns: [/\b(chow|chi|chii)\b/, /\brun\b/, /\beat\b/, /straight/] },
-  { id: 'rules.kong', answer: () => STATIC.kong, patterns: [/\b(kong|gang|kan)\b/, /four of a kind/] },
-  { id: 'rules.win', answer: () => STATIC.win, patterns: [/how.*win/, /\b(win|hu|mahjong|winning hand)\b/, /complete.*hand/] },
-  { id: 'rules.flowers', answer: () => STATIC.flowers, patterns: [/flower|season|bonus tile|animal/] },
-  { id: 'rules.concealed', answer: () => STATIC.concealed, patterns: [/conceal|expose|face up|hide my hand/] },
+  { id: 'advice.discard', answer: adviceDiscard,
+    patterns: [
+      /what.*(should|do).*(discard|throw|play)/, /(best|optimal|right).*(play|move|discard|tile)/,
+      /which tile/, /what.*(get rid of|let go)/, /^(discard|throw)\??$/,
+      /what (should i|do i|to) do( now| here)?\??$/, /\bmy (move|turn)\b/, /\bwhat now\b/,
+    ],
+    keywords: ['discard', 'discarding', 'throw', 'dump', 'toss', 'chuck', 'ditch'] },
+  { id: 'advice.claim', answer: adviceClaim,
+    patterns: [
+      /should i.*(pong|peng|chow|chi|kong|gang|call|take|claim)/,
+      /(worth|good idea).*(pong|chow|kong|calling)/, /(pong|chow|kong).*(this|it|that one)/,
+    ],
+    keywords: ['call', 'calling', 'claim'] },
+  { id: 'advice.progress', answer: adviceProgress,
+    patterns: [
+      /how (close|near|far)/, /am i (close|near|ready|winning)/, /(tiles?|much).*(away|left to win)/,
+      /waiting (on|for)/, /can i win/,
+    ],
+    keywords: ['close', 'near', 'ready', 'waiting', 'tenpai', 'behind', 'progress'] },
+  { id: 'advice.value', answer: adviceValue,
+    patterns: [
+      /(my|i).*(hand).*(worth|score|tai)/, /how (many|much).*(tai|points|worth).*(i|my|me)/,
+      /what.*my hand.*worth/, /score my hand/, /how much (is|would|are).*(hand|this|it|these)/,
+    ],
+    keywords: ['worth', 'value'] },
+  { id: 'rules.limit', answer: answerLimit,
+    patterns: [
+      /limit/, /maximum|max.*(tai|score|payout)/, /cap/,
+      /(biggest|largest|highest).*(hand|score|tai|win|payout)/,
+    ],
+    keywords: ['limit', 'cap', 'capped', 'maximum', 'ceiling'] },
+  { id: 'rules.tai', answer: answerTai,
+    patterns: [/\btai\b/, /scoring|score|points|payment|pay(s|ing)?\b/, /how much.*win/],
+    keywords: ['tai', 'points', 'payout', 'payment', 'scoring'] },
+  { id: 'rules.table', answer: answerRules,
+    patterns: [/house rules?/, /(what|which) rules/, /settings/],
+    keywords: ['rules', 'settings', 'house', 'variant', 'toggles'] },
+  { id: 'rules.wall', answer: answerWall,
+    patterns: [/\bwall\b/, /tiles? (left|remaining)/, /run out/, /\bdraw game\b/],
+    keywords: ['wall', 'remaining', 'pile', 'stock', 'undrawn'] },
+  { id: 'rules.seat', answer: answerSeat,
+    patterns: [/(my )?seat/, /prevailing/, /which wind/, /\bwind\b/],
+    keywords: ['seat', 'wind', 'prevailing'] },
+  { id: 'rules.dealer', answer: () => STATIC.dealer,
+    patterns: [/dealer|banker/],
+    keywords: ['dealer', 'banker'] },
+  { id: 'rules.pong', answer: () => STATIC.pong,
+    patterns: [/\b(pong|peng|pung)\b/, /three of a kind/, /triplet/],
+    keywords: ['pong', 'peng', 'pung', 'triplet'] },
+  { id: 'rules.chow', answer: () => STATIC.chow,
+    patterns: [/\b(chow|chi|chii)\b/, /\brun\b/, /\beat\b/, /straight/],
+    keywords: ['chow', 'chi', 'chii', 'sequence', 'consecutive'] },
+  { id: 'rules.kong', answer: () => STATIC.kong,
+    patterns: [/\b(kong|gang|kan)\b/, /four of a kind/],
+    keywords: ['kong', 'gang', 'kan', 'quad'] },
+  { id: 'rules.win', answer: () => STATIC.win,
+    patterns: [/how.*win/, /\b(win|hu|mahjong|winning hand)\b/, /complete.*hand/],
+    keywords: ['win', 'winning', 'mahjong'] },
+  { id: 'rules.flowers', answer: () => STATIC.flowers,
+    patterns: [/flower|season|bonus tile|animal/],
+    keywords: ['flower', 'flowers', 'season', 'seasons', 'bonus'] },
+  { id: 'rules.concealed', answer: () => STATIC.concealed,
+    patterns: [/conceal|expose|face up|hide my hand/],
+    keywords: ['concealed', 'conceal', 'exposed', 'expose', 'hidden'] },
 ];
 
 /** The tappable questions offered in the panel, so nobody has to type to get help. */
@@ -271,17 +313,46 @@ function fallback() {
   };
 }
 
+function build(intent, state) {
+  const answer = intent.answer(state);
+  return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES) };
+}
+
+/**
+ * Looser second pass: score each intent by how many of its `keywords` appear in the question as
+ * whole words (or, for multi-word keywords, as a phrase). Returns the best-scoring intent, or
+ * `null` when nothing matched. Ties keep INTENTS order via the strict `>`.
+ */
+function guessIntent(text) {
+  const words = new Set(text.split(/[^a-z]+/).filter(Boolean));
+  let best = null;
+  let bestScore = 0;
+  for (const intent of INTENTS) {
+    let score = 0;
+    for (const kw of intent.keywords || []) {
+      if (kw.includes(' ') ? text.includes(kw) : words.has(kw)) score += 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = intent;
+    }
+  }
+  return best;
+}
+
 /** Route a question to an answer. Never throws and never returns nothing. */
 export function ask(question, state) {
   const text = String(question || '').toLowerCase().trim();
   if (!text) return fallback();
 
   for (const intent of INTENTS) {
-    if (intent.patterns.some((p) => p.test(text))) {
-      const answer = intent.answer(state);
-      return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES) };
-    }
+    if (intent.patterns.some((p) => p.test(text))) return build(intent, state);
   }
+
+  // No pattern fit — fall back to a keyword score before giving up entirely.
+  const guess = guessIntent(text);
+  if (guess) return { ...build(guess, state), matchedBy: 'keyword' };
+
   return { ...fallback(), intent: 'fallback' };
 }
 

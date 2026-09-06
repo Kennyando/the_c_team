@@ -183,6 +183,31 @@ test('an unrecognised question offers help instead of failing', () => {
   assert.equal(ask(null, state()).lines.length > 0, true);
 });
 
+test('a question no pattern catches still routes on its keywords', () => {
+  // None of these match a `patterns` entry — they only reach an answer via the keyword score.
+  const cases = [
+    ['should I dump this tile', 'advice.discard'],
+    ['which one should I chuck', 'advice.discard'],
+    ['is it worth anything', 'advice.value'],
+    ['the pile no one draws from', 'rules.wall'],
+    ['what is a quad', 'rules.kong'],
+    ['what house variant is this', 'rules.table'],
+    ['am I behind', 'advice.progress'],
+  ];
+  for (const [question, expected] of cases) {
+    const answer = ask(question, state());
+    assert.equal(answer.intent, expected, `"${question}"`);
+    assert.equal(answer.matchedBy, 'keyword', `"${question}" should be a keyword match, not a pattern`);
+    assert.ok(answer.title && answer.lines.length, `empty answer for "${question}"`);
+  }
+});
+
+test('the keyword score does not drag an off-topic question to an answer', () => {
+  for (const question of ['what is the weather like', 'tell me a joke', 'who won the game last night']) {
+    assert.equal(ask(question, state()).intent, 'fallback', `"${question}"`);
+  }
+});
+
 test('every quick question resolves to a real answer, not the fallback', () => {
   for (const question of QUICK_QUESTIONS) {
     const answer = ask(question, state());
