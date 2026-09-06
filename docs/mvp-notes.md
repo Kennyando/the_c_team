@@ -268,10 +268,14 @@ These are deliberate MVP boundaries, not defects:
    `@kaki/game`), pinned by `agents/test/contract.test.js` — so the review can't differ by
    deployment. It works fully offline; with `VITE_REVIEW_URL` set it POSTs the log to
    `backend/lambda/reviewHand.ts`, where the `@kaki/agents` package has a cheap Bedrock model
-   *phrase* the same already-graded facts more warmly — the model never computes or judges anything,
-   and a grounding check drops any reply that claims more than the facts support, so the accuracy
-   guarantees hold exactly as for the classify-intent coach fallback. Any failure (no URL, non-2xx,
-   timeout, malformed or ungrounded reply) falls back to the offline summary. `src/game/puzzles.js`/
+   *phrase* the same already-graded facts more warmly — the model never computes or judges anything.
+   Per-item grounding enforces that: the model must tag each bullet — and the `oneThingToTry`
+   takeaway, on any hand with mistakes — with the id of the decision it's about, and `runReview()`
+   drops the whole reply unless every one names a real decision whose engine grade matches its
+   "well played" / "next time" bucket. (A clean hand has no mistake to point `oneThingToTry` at, so
+   the deterministic focus is used there.) So the accuracy guarantees hold exactly as for the
+   classify-intent coach fallback. Any failure (no URL, non-2xx, timeout, malformed or ungrounded
+   reply) falls back to the offline summary. `src/game/puzzles.js`/
    `puzzleLibrary.js` and the `Puzzle` screen remain the other piece built on the same `advisor.js`
    grading. Still not built: per-player mistake history across hands (needs accounts — Phase 3+),
    claim puzzles, and any link between a puzzle and your own past decisions. See `agents/README.md`

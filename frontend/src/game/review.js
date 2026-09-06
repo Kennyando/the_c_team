@@ -15,7 +15,11 @@ export function localReview(decisions, rules) {
 }
 
 const REVIEW_URL = import.meta.env?.VITE_REVIEW_URL;
-const REVIEW_TIMEOUT_MS = 6000;
+// The review is not on any critical path — it shows after the hand is already over — so wait
+// long enough to cover a cold Lambda plus a Bedrock call (the handler itself allows 15s). 6s was
+// too tight: a cold first invocation would abort and drop to the offline summary even when the
+// model would have answered.
+const REVIEW_TIMEOUT_MS = 13000;
 
 /**
  * The review for a finished hand. POSTs `{ decisions, rules }` to the backend review agent when
