@@ -231,7 +231,8 @@ export default function App() {
 
             <Table state={state} />
 
-            {/* Outside the scene on purpose: your hand is never tilted or foreshortened. */}
+            {/* Rests on the near edge of the table, but never tilted — the tiles you tap stay
+                flat and full size. */}
             <Hand
               player={you}
               dealer={state.dealer}

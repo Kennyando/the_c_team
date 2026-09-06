@@ -28,6 +28,9 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
   const [thread, setThread] = useState([]);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
+  // The tappable questions lead, but they can be folded away to make room for the answer and the
+  // text box on a short screen.
+  const [quickOpen, setQuickOpen] = useState(true);
   const answersRef = useRef(null);
   // A ref, not just the `pending` state above: state updates are batched/async, so two clicks in
   // the same tick could both still read `pending === false` before either re-render lands. The
@@ -135,9 +138,22 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
       </div>
 
       <div className="coach-quick">
-        {QUICK_QUESTIONS.map((q) => (
-          <button key={q} type="button" onClick={() => askNow(q)} disabled={pending}>{q}</button>
-        ))}
+        <button
+          type="button"
+          className="coach-quick-toggle"
+          aria-expanded={quickOpen}
+          onClick={() => setQuickOpen((v) => !v)}
+        >
+          <span>Suggested questions</span>
+          <span aria-hidden="true">{quickOpen ? '▾' : '▸'}</span>
+        </button>
+        {quickOpen && (
+          <div className="coach-quick-list">
+            {QUICK_QUESTIONS.map((q) => (
+              <button key={q} type="button" onClick={() => askNow(q)} disabled={pending}>{q}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       <form

@@ -57,7 +57,7 @@ test('the narration pill shows the latest line, then hides itself after a second
   }
 });
 
-test('a new table starts flat (top-down) with the animal tiles in', () => {
+test('a new table starts in the flat (top-down) view with the animal tiles in', () => {
   const { container } = render(<App />);
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
 

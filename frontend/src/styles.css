@@ -16,6 +16,7 @@
   --panel-edge: #c9bfa6;
   --tile-face: #fffdf7;
   --tile-edge: #a89877;
+  --tile-body: #cdc4ab; /* the extruded side of a tile, drawn as a stacked shadow */
   --tile-lift: 0 10px 12px rgba(0, 0, 0, 0.35);
   --accent: #b3271e;
   --accent-text: #ffffff;
@@ -40,6 +41,7 @@
   --panel-edge: #000000;
   --tile-face: #ffffff;
   --tile-edge: #000000;
+  --tile-body: #000000;
   --tile-lift: 0 0 0 transparent;
   --accent: #000000;
   --accent-text: #ffff00;
@@ -99,57 +101,54 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .topbar .spacer { flex: 1; }
 .wall-count { color: var(--muted); font-weight: 700; }
 
-/* ---------- the table, seen from your seat ----------
+/* ---------- the table ----------
 
-   One layout, two transforms: --tilt is the only difference between the seated and flat views, so
-   there is never a second layout to keep in sync. Nothing inside the scene is clickable, which is
-   what makes tilting it safe — your hand lives outside, flat and full size. */
+   The table fills the whole play area; your hand rests on its near edge (see .hand-area), flat
+   and full size, so nothing you tap is ever foreshortened. --tilt is the only difference between
+   the seated and flat views. Nothing inside .scene is clickable. */
 
 .table {
   position: relative;
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  --tilt: 45deg;
-  --table-scale: 1.04;
+  --tilt: 30deg;
+  --table-scale: 1;
   --rim: #6b4a2a;
   --rim-light: #9a6f42;
 }
-.table.view-flat { --tilt: 0deg; --table-scale: 1; }
+.table.view-flat { --tilt: 0deg; }
 
 .scene {
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 14px 16px 0;
-  perspective: 1150px;
-  perspective-origin: 50% 26%;
-  background: radial-gradient(ellipse at 50% 120%, #14684a 0%, var(--felt-dark) 62%, #06301f 100%);
+  padding: 10px 16px 0;
+  perspective: 1600px;
+  perspective-origin: 50% 20%;
+  background: radial-gradient(ellipse at 50% 130%, #14684a 0%, var(--felt-dark) 58%, #06301f 100%);
   overflow: hidden;
 }
 .table.view-flat .scene { perspective: none; }
 
 .surface {
   position: relative;
-  height: 100%;
-  width: min(96%, 1300px);
-  /* Scaled up a little: foreshortening shrinks the drawn table, and pulling it back out brings the
-     near edge close enough to feel like it meets your side of the table. */
+  height: 92%;
+  width: min(90%, 1160px);
+  /* Pivot on the top edge so the table hangs down from just under the topbar and its near edge
+     comes forward to meet the hand, rather than the whole thing floating mid-scene. */
   transform: rotateX(var(--tilt)) scale(var(--table-scale));
+  transform-origin: 50% 0;
   transform-style: preserve-3d;
   border-radius: 22px;
 
-  /* The size slider exists so you can read YOUR OWN hand. Applying it at full strength to the
-     table as well makes the opponents' racks and the discard pool outgrow the table itself, so
-     everything on the felt follows a damped version of it — it still grows, just gently. */
-  --table-tiles: calc(1.3 + (var(--tile-scale) - 1) * 0.3);
+  /* The size slider is for reading YOUR hand; the felt follows a damped version so the opponents'
+     walls and rivers don't outgrow the table. */
+  --table-tiles: calc(1.25 + (var(--tile-scale) - 1) * 0.3);
   --tile-w: calc(52px * var(--table-tiles));
   --tile-h: calc(74px * var(--table-tiles));
 
-  /* The wooden rim, lit a little at the near edge. */
   border: 16px solid var(--rim);
   border-top-color: color-mix(in srgb, var(--rim) 78%, black);
   border-bottom-color: var(--rim-light);
@@ -166,77 +165,54 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   position: absolute;
   inset: 0;
   border-radius: 8px;
-  background: radial-gradient(circle at 50% 42%, #167a52, var(--felt) 58%, #0b4a32 100%);
+  background: radial-gradient(circle at 50% 44%, #167a52, var(--felt) 58%, #0b4a32 100%);
   transform: translateZ(-6px);
 }
 [data-theme='contrast'] .felt { background: #000; }
 [data-theme='contrast'] .scene { background: #000; }
 
-/* ---------- the concealed hands ---------- */
+/* ---------- opponent seats ----------
 
-.rack { display: contents; }
-/* One back per tile the seat at that edge is holding (see handRows in tableLayout.js), in a
-   single row, so the length of a row reads as that player's hand size. */
-.rack-edge {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  overflow: hidden;
-}
-.rack-edge-far { top: 1%; left: 50%; max-width: 92%; transform: translateX(-50%); }
-.rack-edge-near { bottom: 4%; left: 50%; max-width: 92%; transform: translateX(-50%); }
-/* The two side players' concealed tiles as a vertical column of side-on backs, run down the
-   table edge beside that seat so the whole column is visible. Each back is laid landscape so the
-   column reads as a stack of tiles seen edge-on, the way the side seats look on a real table. */
-.rack-edge-left, .rack-edge-right {
-  top: 42%;
-  flex-direction: column;
-  flex-wrap: nowrap;
-  justify-content: center;
-  gap: 1px;
-  transform: translateY(-50%);
-}
-.rack-edge-left { left: 4%; }
-.rack-edge-right { right: 4%; }
-.rack-edge-left .rack-tile, .rack-edge-right .rack-tile {
-  width: calc(var(--tile-w) * 0.5);
-  height: calc(var(--tile-h) * 0.11);
-}
-.rack-tile {
-  width: calc(var(--tile-w) * 0.34);
-  height: calc(var(--tile-h) * 0.30);
-  border-radius: 2px;
-  background: linear-gradient(#f2ead6, #cdbf9e);
-  border: 1px solid #8d7c58;
-}
-[data-theme='contrast'] .rack-tile { background: #fff; border-color: #000; }
-
-/* ---------- opponents ---------- */
+   Each seat is ONE block — name plate, wall of concealed backs, exposed melds — laid out together
+   and positioned once per edge, so the three parts never drift apart or overlap. The plate is
+   counter-rotated out of the tilt so its text faces the reader. */
 
 .seat {
   position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* A wide gap between the name plate and the exposed melds: the seat's counter-rotation, seen
-     through the scene's perspective, projects the plate (top of this column) down onto the melds,
-     so a small gap here reads as the plate sitting on the tiles. */
-  gap: calc(var(--tile-h) * 0.3);
-  /* Stand the plate up out of the table tilt, so it faces you square-on. */
-  transform: translateZ(30px) rotateX(calc(var(--tilt) * -1));
-  transform-origin: 50% 100%;
+  gap: calc(var(--tile-h) * 0.12);
+  /* Rotate around the block's own middle so counter-tilting the seat upright barely shifts it. */
+  transform-origin: 50% 50%;
 }
-/* The far edge has no room to lift the plate — the wall backs sit just above it — so this seat
-   uses a smaller gap and clears its melds off the discards by moving the pile instead (below). */
-.seat-far { bottom: 60%; left: 26%; width: 48%; gap: calc(var(--tile-h) * 0.16); }
-/* Pulled in from the row's own edge inset (4%) so the standing plate never crosses the backs lying
-   flat beside it — on a real table a player sits behind their own tiles, not on top of them. */
-.seat-left { bottom: 40%; left: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(16deg); }
-.seat-right { bottom: 40%; right: 11%; width: 24%; transform: translateZ(30px) rotateX(calc(var(--tilt) * -1)) rotateY(-16deg); }
+/* The far seat is pushed flush to the top edge; its block spans the whole width so its exposed
+   sets can be parked in the top-right corner (below), clear of the plate and wall. */
+.seat-far {
+  top: 2%; left: 50%; width: 94%;
+  transform: translateX(-50%) translateZ(20px) rotateX(calc(var(--tilt) * -1));
+}
+.seat-left {
+  top: 44%; left: 2%; width: 21%;
+  transform: translateY(-50%) translateZ(20px) rotateX(calc(var(--tilt) * -1));
+}
+.seat-right {
+  top: 44%; right: 2%; width: 21%;
+  transform: translateY(-50%) translateZ(20px) rotateX(calc(var(--tilt) * -1));
+}
 
-/* The name plate stays square to the reader — skewed text is what this app exists to avoid. */
+/* Ah Gong's exposed sets: stacked in the top-right corner of the table, out of the way of the
+   discards and the plate (the player annotated exactly this). */
+.seat-far .seat-open {
+  position: absolute;
+  top: 0;
+  right: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  max-width: 30%;
+}
+
 .seat-plate {
   display: flex;
   align-items: baseline;
@@ -245,117 +221,67 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   justify-content: center;
   padding: 3px 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   color: var(--text-on-felt);
   max-width: 100%;
+  white-space: nowrap;
 }
 [data-theme='contrast'] .seat-plate { background: #000; border: 2px solid #fff; }
 .seat.active .seat-plate { background: var(--highlight); color: var(--ink); }
-.seat-name { font-weight: 800; font-size: calc(15px * var(--tile-scale)); }
+.seat-name { font-weight: 800; font-size: calc(14px * var(--tile-scale)); }
 .seat-turn { color: var(--accent); }
 .seat.active .seat-turn { color: var(--ink); }
-.seat-meta { font-size: calc(13px * var(--tile-scale)); opacity: 0.9; }
+.seat-meta { font-size: calc(12px * var(--tile-scale)); opacity: 0.9; }
 
-.seat-open { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: 100%; }
-.seat-meld { display: flex; gap: 2px; padding: 3px; border-radius: 7px; background: rgba(0, 0, 0, 0.35); }
-/* Exposed sets sit smaller than a full tile: a player with three or four melds would otherwise
-   grow tall enough to push their own name plate off the top of the table. */
-.seat-meld .tile.small {
-  width: calc(var(--tile-w) * 0.46);
-  height: calc(var(--tile-h) * 0.46);
+/* The wall of face-down tiles the seat is still holding — a row for the far seat, a column for
+   the two side seats, so it always runs along that player's own edge. */
+.seat-wall { display: flex; gap: 1px; flex-wrap: nowrap; max-width: 100%; }
+.seat-left .seat-wall, .seat-right .seat-wall { flex-direction: column; align-items: center; }
+.wall-tile {
+  flex: none;
+  width: calc(var(--tile-w) * 0.3);
+  height: calc(var(--tile-h) * 0.26);
+  border-radius: 3px;
+  background: linear-gradient(#f2ead6, #cdbf9e);
+  border: 1px solid #8d7c58;
+  box-shadow: 0 2px 0 #a98f63;
 }
+.seat-left .wall-tile, .seat-right .wall-tile {
+  width: calc(var(--tile-w) * 0.44);
+  height: calc(var(--tile-h) * 0.12);
+  box-shadow: 2px 0 0 #a98f63;
+}
+[data-theme='contrast'] .wall-tile { background: #fff; border-color: #000; box-shadow: none; }
+
+.seat-open { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: 100%; }
+.seat-meld { display: flex; gap: 2px; padding: 3px; border-radius: 7px; background: rgba(0, 0, 0, 0.35); }
+.seat-meld .tile.small { width: calc(var(--tile-w) * 0.42); height: calc(var(--tile-h) * 0.42); }
 [data-theme='contrast'] .seat-meld { background: #000; border: 2px solid #fff; }
 
-/* ---------- discards, one tidy grid per seat ----------
-
-   Each player's discards pile up as their own compact grid, just inside their own row of backs —
-   the way an actual mahjong game lays them out — rather than landing in one shared heap. */
+/* ---------- discards: a six-wide river per seat ---------- */
 
 .discard-piles { display: contents; }
-.discards-empty {
+.discard-river {
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-on-felt);
-  opacity: 0.6;
-  font-size: calc(14px * var(--tile-scale));
-  pointer-events: none;
+  display: grid;
+  grid-template-columns: repeat(6, auto);
+  gap: 3px;
 }
-[data-theme='contrast'] .discards-empty { opacity: 1; }
+.discard-tile .tile.small { width: calc(var(--tile-w) * 0.34); height: calc(var(--tile-h) * 0.34); }
+.discard-river-far   { top: 20%; left: 50%; transform: translateX(-50%) translateZ(6px); }
+.discard-river-near  { top: 58%; left: 50%; transform: translateX(-50%) translateZ(6px); }
+.discard-river-left  { top: 40%; left: 25%; transform: translate(-50%, -50%) translateZ(6px); }
+.discard-river-right { top: 40%; left: 75%; transform: translate(-50%, -50%) translateZ(6px); }
 
-.discard-pile {
-  position: absolute;
-  display: flex;
-  flex-wrap: wrap;
-  /* Row-gap enough to keep the upright tiles from hiding behind the row in front, but tight
-     enough that a whole hand's river still fits on the felt without being clipped. */
-  gap: 6px 3px;
-  justify-content: center;
-  align-content: flex-start;
-}
-/* Discards sit a little smaller than the melds so a full river never crowds a seat or the wall. */
-.discard-tile .tile.small {
-  width: calc(var(--tile-w) * 0.4);
-  height: calc(var(--tile-h) * 0.4);
-}
-/* Each pile sits in its own player's quarter of the felt — a strip under the far seat, one just
-   above your own hand, and one down each side by the side seats — with a clear gap left in the
-   centre, the way discards actually lie on a table. The side strips sit low enough to clear that
-   seat's name plate and melds. */
-.discard-pile-far {
-  top: 38%;
-  left: 50%;
-  width: min(230px, 32%);
-  transform: translateX(-50%) translateZ(12px);
-}
-.discard-pile-near {
-  bottom: 8%;
-  left: 50%;
-  width: min(230px, 32%);
-  transform: translateX(-50%) translateZ(12px);
-}
-.discard-pile-left {
-  left: 23%;
-  top: 74%;
-  width: min(120px, 13%);
-  transform: translateY(-50%) translateZ(12px);
-}
-.discard-pile-right {
-  right: 23%;
-  top: 74%;
-  width: min(120px, 13%);
-  transform: translateY(-50%) translateZ(12px);
+.discard-tile { transform-origin: 50% 100%; }
+.discard-latest { z-index: 2; animation: discard-in 220ms ease-out; }
+.discard-latest .tile {
+  box-shadow: 0 0 0 3px var(--highlight), 0 3px 0 var(--tile-body), 0 5px 7px rgb(0 0 0 / 30%);
 }
 
-/* Every discarded tile — all four players' piles — stands fully upright out of the table tilt,
-   pivoting on the edge that rests on the felt, so each pile reads as a row of real tiles someone
-   tossed down rather than a flat grid. The lift shadow then shows as the tile's contact with the
-   cloth. `.discard-latest` below is defined after this and
-   wins the shared `transform`, so the newest tile is lifted forward of the rest. When --tilt is
-   0 (flat view / reduced motion) this is rotateX(0) and the tiles lie flat with no special-casing. */
-.discard-tile {
-  transform: rotateX(calc(var(--tilt) * -1));
-  transform-origin: 50% 100%;
-}
-
-/* The tile just thrown stands up at full size, square to you — it is the one thing on the table a
-   decision actually depends on, so it must not be foreshortened with the rest of its pile. */
-.discard-latest {
-  transform: translateZ(18px) rotateX(calc(var(--tilt) * -1)) translateY(-8%);
-  transform-origin: 50% 100%;
-  z-index: 2;
-  /* The class hops to each new latest tile, so this fires once per discard. */
-  animation: discard-in 220ms ease-out;
-}
-
-/* A tile lands in the pile: it rises the last bit into place and fades in — a toss, no flight. */
+/* A tile lands in its river: it rises the last bit into place and fades in — a toss, no flight. */
 @keyframes discard-in {
-  from {
-    opacity: 0;
-    transform: translateZ(18px) rotateX(calc(var(--tilt) * -1)) translateY(60%);
-  }
+  from { opacity: 0; transform: translateY(45%); }
 }
 
 /* A tile drawn into your hand pops in with a small overshoot. Scoped to your hand so the
@@ -374,7 +300,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   position: relative;
   width: var(--tile-w);
   height: var(--tile-h);
-  border-radius: 9px;
+  border-radius: 5px;
   border: 2px solid var(--tile-edge);
   background: var(--tile-face);
   color: var(--ink);
@@ -385,8 +311,14 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   gap: 2px;
   padding: 0;
   min-height: 0;
-  box-shadow: var(--tile-lift);
+  /* A stacked shadow gives every tile a chunky extruded side plus its drop shadow. */
+  box-shadow: 0 5px 0 var(--tile-body), 0 8px 10px rgb(0 0 0 / 30%);
+  margin-bottom: 5px;
   flex: none;
+}
+.tile.small {
+  box-shadow: 0 3px 0 var(--tile-body), 0 5px 7px rgb(0 0 0 / 30%);
+  margin-bottom: 3px;
 }
 /* Traditional faces are SVG, so they scale with the tile — and therefore with the size slider —
    without any font-size arithmetic. */
@@ -435,29 +367,35 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .tile:focus-visible::after { opacity: 1; }
 
 .tile.selectable:hover { transform: translateY(-6px); }
-/* The freshly drawn / latest-discard tile gets a highlight ring — a box-shadow, so it leaves the
-   border and layout untouched. */
-.tile.just-drawn { box-shadow: 0 0 0 3px var(--highlight), var(--tile-lift); }
+/* The freshly drawn / latest-discard tile gets a highlight ring, keeping the chunky side. */
+.tile.just-drawn {
+  box-shadow: 0 0 0 3px var(--highlight), 0 5px 0 var(--tile-body), 0 8px 10px rgb(0 0 0 / 30%);
+}
+.tile.small.just-drawn {
+  box-shadow: 0 0 0 3px var(--highlight), 0 3px 0 var(--tile-body), 0 5px 7px rgb(0 0 0 / 30%);
+}
 .tile.dimmed { opacity: 0.55; }
 
 /* ---------- your hand ---------- */
 
-/* Your side of the table. Outside the perspective entirely: full size, square to you, tap targets
-   untouched. The wooden ledge ties it to the table rim without altering a single tile. */
+/* Rests on the near edge of the table: absolutely placed over the bottom of the scene, but never
+   tilted — full size, square to you, tap targets untouched. The wooden ledge ties it to the rim. */
 .hand-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
   background: var(--felt);
   color: var(--text-on-felt);
   --muted: color-mix(in srgb, var(--text-on-felt) 82%, transparent);
   /* Your own tiles are the one thing you must read at a glance, so they get their own bump on
      top of the size slider rather than sharing the root scale with buttons and dialogs. */
-  --tile-w: calc(52px * var(--tile-scale) * 1.35);
-  --tile-h: calc(74px * var(--tile-scale) * 1.35);
+  --tile-w: calc(52px * var(--tile-scale) * 1.16);
+  --tile-h: calc(74px * var(--tile-scale) * 1.16);
   border-top: 10px solid var(--rim, #6b4a2a);
-  border-radius: 0;
-  padding: 12px 16px 14px;
-  box-shadow: 0 -12px 26px rgba(0, 0, 0, 0.4);
-  position: relative;
-  z-index: 3;
+  padding: 8px 16px 10px;
+  box-shadow: 0 -14px 30px rgba(0, 0, 0, 0.5);
   max-height: 46vh;
   overflow-y: auto;
   /* Reserved so a wrapped row of tiles never ends up underneath the Help button. */
@@ -465,14 +403,18 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 @media (max-width: 640px) { .hand-area { padding-right: 16px; padding-bottom: 76px; } }
 [data-theme='contrast'] .hand-area { border-top-color: #fff; }
-.hand-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
-.hand-header .you { font-weight: 800; font-size: calc(19px * var(--tile-scale)); }
-.hand-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.meld-group { display: flex; gap: 3px; padding: 5px; border: 2px dashed var(--panel-edge); border-radius: 10px; }
+.hand-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.hand-header .you { font-weight: 800; font-size: calc(16px * var(--tile-scale)); }
+/* Melds and flowers in the header ride smaller than your concealed tiles, so the header stays
+   one shallow line and the table keeps the height. */
+.hand-header .tile.small { width: calc(var(--tile-w) * 0.42); height: calc(var(--tile-h) * 0.42); }
+.hand-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.meld-group { display: flex; gap: 3px; padding: 4px; border: 2px dashed var(--panel-edge); border-radius: 10px; }
 
 .prompt {
-  margin: 0 0 10px;
+  margin: 0 0 6px;
   font-weight: 700;
+  font-size: calc(14px * var(--tile-scale));
   color: var(--muted);
 }
 
@@ -762,8 +704,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   right: 20px;
   bottom: 20px;
   z-index: 20;
-  width: min(440px, calc(100vw - 40px));
-  max-height: min(78vh, 720px);
+  width: min(480px, calc(100vw - 40px));
+  max-height: min(80vh, 760px);
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -771,6 +713,9 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   border-radius: 18px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   overflow: hidden;
+  /* This is a reading surface — keep the body text a comfortable size even when the tile slider
+     (and therefore --font) is turned down. */
+  font-size: max(16px, calc(16px * var(--tile-scale)));
 }
 [data-theme='contrast'] .coach-panel { border-color: var(--highlight); }
 
@@ -781,13 +726,14 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   padding: 12px 16px;
   border-bottom: 3px solid var(--panel-edge);
 }
-.coach-head h2 { margin: 0; flex: 1; font-size: calc(20px * var(--tile-scale)); }
+.coach-head h2 { margin: 0; flex: 1; font-size: max(19px, calc(20px * var(--tile-scale))); }
 
-.coach-answers { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.coach-answers { flex: 1 1 auto; min-height: 4.5em; overflow-y: auto; padding: 14px 16px; }
 .coach-intro { margin: 0; color: var(--muted); }
 .coach-q {
   margin: 14px 0 6px;
   font-weight: 800;
+  font-size: max(15px, calc(15px * var(--tile-scale)));
   color: var(--muted);
 }
 .coach-a {
@@ -797,7 +743,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   padding: 12px 14px;
 }
 [data-theme='contrast'] .coach-a { background: #000; color: var(--highlight); border-color: var(--highlight); }
-.coach-a strong { display: block; margin-bottom: 6px; font-size: calc(18px * var(--tile-scale)); }
+.coach-a strong { display: block; margin-bottom: 6px; font-size: max(18px, calc(19px * var(--tile-scale))); }
 /* Marks an answer a model wrote from the current hand, rather than a rules-guaranteed one. */
 .coach-a-ai {
   display: inline-block;
@@ -811,19 +757,41 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   text-transform: uppercase;
 }
 .coach-a-tile { margin-bottom: 8px; }
-.coach-a p { margin: 0 0 6px; line-height: 1.45; }
+/* The answer's tile is a key part of the response — show it a good bit bigger than a felt tile. */
+.coach-a-tile .tile.small {
+  width: max(52px, calc(52px * var(--tile-scale)));
+  height: max(74px, calc(74px * var(--tile-scale)));
+}
+.coach-a p { margin: 0 0 6px; line-height: 1.5; font-size: inherit; }
 .coach-a p:last-child { margin-bottom: 0; }
 
 .coach-quick {
+  padding: 8px 16px 12px;
+  border-top: 3px solid var(--panel-edge);
+}
+/* A slim disclosure header, not a full tap-target button — it folds the list away. */
+.coach-quick-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-weight: 800;
+  font-size: max(13px, calc(14px * var(--tile-scale)));
+}
+.coach-quick-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 16px;
-  border-top: 3px solid var(--panel-edge);
+  margin-top: 8px;
 }
-.coach-quick button {
+.coach-quick-list button {
   flex: 1 1 auto;
-  font-size: calc(15px * var(--tile-scale));
+  font-size: max(14px, calc(15px * var(--tile-scale)));
   font-weight: 600;
   padding: 0 12px;
 }
@@ -855,26 +823,14 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   .coach-fab { right: 12px; bottom: 12px; }
 }
 
-/* A deep angle costs vertical space, which the hand needs more than the table does.
-
-   On a small screen a table and thirteen large tiles genuinely do not both fit in one viewport, so
-   the page scrolls rather than cropping the far seat off the top. The table keeps a guaranteed
-   minimum height so it never collapses to a sliver. */
+/* A deep angle costs vertical space, which the hand needs more than the table does — so the tilt
+   shallows as the screen gets shorter/narrower. The hand overlays the table's near edge either
+   way and scrolls inside itself, so nothing has to crop the far seat off the top. */
 @media (max-width: 900px) {
-  .app { height: auto; min-height: 100vh; overflow: visible; }
-  /* A definite height, not flex:1 — once the page scrolls the parent has no definite height, and
-     the surface's height:100% would collapse against it. */
-  .scene { flex: none; height: 50vh; min-height: 340px; padding: 10px 10px 0; }
-  .hand-area { max-height: none; overflow: visible; }
-  .table { --tilt: 30deg; --table-scale: 1.02; }
-  .seat-far { bottom: 60%; }
-  .seat-left, .seat-right { bottom: 38%; }
-  /* A short table leaves each pile very little room, so let them run wider before wrapping. */
-  .discard-pile-far, .discard-pile-near { width: min(260px, 40%); }
-  .discard-pile-left, .discard-pile-right { width: min(140px, 20%); }
+  .table { --tilt: 26deg; --table-scale: 1.01; }
 }
 @media (max-width: 640px) {
-  .table { --tilt: 24deg; --table-scale: 1; }
+  .table { --tilt: 20deg; --table-scale: 1; }
   .surface { border-width: 10px; }
 }
 
