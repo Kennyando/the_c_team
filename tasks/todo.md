@@ -2203,3 +2203,23 @@ Not done (follow-up): surfacing `ref` to `HandReview.jsx` to link a bullet to it
 - **Not yet run against live Bedrock** — the deployed Lambda still has the pre-grounding code and
   old prompt. After merge + redeploy, confirm Nova Lite produces well-grounded `{ref,text}` at an
   acceptable rate (an ungrounded reply is safe — it just falls back to the deterministic review).
+
+## Live test on the sandbox (per-item grounding)
+
+Deployed `feature/per-item-grounding` (Nova Lite + grounding) and tested via direct POST:
+
+- **Clean 3-decision hand** → `modelAssisted: true` (~2s). The 3 bullets were correctly grounded:
+  the "well played" bullet cited the optimal discard, the two "next time" bullets cited the
+  sub-optimal discard and the missed pong.
+- **Messy 8-decision hand with near-identical facts** (six lone-wind discards, two of the same
+  tile) → grounding **rejected** Nova Lite's reply → deterministic fallback. Working as intended:
+  a model that reuses/miscategorises a ref on a hard input is not trusted.
+
+Takeaway: grounding works; Nova Lite grounds fine on varied inputs but falls back more on hands
+with many repeated mistakes. Safe either way. A real player's decision log is more varied than
+the terrible-on-purpose auto-driver's, so real-world fallback rate should be lower.
+
+- [x] `frontend/src/game/review.js` — `REVIEW_TIMEOUT_MS` 6000 → 13000. A cold Lambda + Bedrock
+     call can exceed 6s, and the client abort was dropping to the offline summary even when the
+     model would have answered. The handler allows 15s; the review is post-hand so latency is
+     not on any critical path.
