@@ -66,7 +66,7 @@ See `backend/README.md` for the full deploy walkthrough (`npx cdk bootstrap` /
 ## What this is
 
 **Kaki Mahjong** is a single-player, rules-accurate **Singapore Mahjong** game
-built for elderly players. You play one hand against three heuristic AI bots (Ah
+built for beginners. You play one hand against three heuristic AI bots (Ah
 Ma, Ah Gong, Ah Huat) on a real tile-legality, claim-priority and _tai_-scoring
 engine.
 
