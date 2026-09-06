@@ -20,12 +20,16 @@ deterministic context  ─►  one model call  ─►  parse + strict validate  
    facts from one implementation (pinned by `test/contract.test.js`).
 2. **One model call** (`src/model.js` — the *only* place a model is invoked) turns those facts
    into warm, plain sentences. It is required to return each bullet as `{ ref, text }` — `ref`
-   naming the fact the bullet is about. It never computes anything; the facts are the analysis.
+   naming the fact the bullet is about — and, when the hand has mistakes, `oneThingToTry` the
+   same way. It never computes anything; the facts are the analysis.
 3. **Validate** — shape (`src/schema.js`: is it `{ ref, text }` bullets, within length caps?),
    then **per-item grounding** in `runReview()`: for every bullet, `ref` must name a real fact,
    that fact's own grade must match the bullet's bucket (a "well played" bullet on a decision the
-   engine graded sub-optimal — or the reverse — is not grounded), and no fact may be cited twice.
-   Any bullet that fails, or any shape/parse/model error, falls to:
+   engine graded sub-optimal — or the reverse — is not grounded), and no fact may be cited twice
+   across the two lists. `oneThingToTry` is held to the same contract — it must cite an `[improve]`
+   fact (its id *may* repeat one an improvements bullet used) — unless the hand is clean, in which
+   case the deterministic focus is substituted. Any bullet that fails, or any shape/parse/model
+   error, falls to:
 4. **Deterministic fallback** (`src/review/deterministic.js` → `assembleReview` from `@kaki/game`)
    assembles the same facts with no model. It is both the offline default and the guaranteed
    floor, so a caller always gets a well-formed result, and it is byte-identical to the frontend's
@@ -86,10 +90,10 @@ output, so the two model-free paths can never drift.
 
 ## Known limits / follow-ups
 
-- **Grounding refs are validated but not surfaced.** Each model bullet carries a `ref` to the
-  decision it's about and `runReview()` holds it to that decision's grade — but the `ref` is
-  dropped before the result reaches the frontend. Passing it through would let `HandReview.jsx`
-  link a bullet to its tile / turn on the table.
+- **Grounding refs are validated but not surfaced.** Each model bullet — and `oneThingToTry`
+  when the hand has mistakes — carries a `ref` to the decision it's about and `runReview()` holds
+  it to that decision's grade, but the `ref` is dropped before the result reaches the frontend.
+  Passing it through would let `HandReview.jsx` link a bullet to its tile / turn on the table.
 - **`advisorVersion` is stamped but not yet consumed.** Every decision record now carries
   `advisorVersion` (`ADVISOR_VERSION` in `frontend/src/game/advisor.js`), so a review of stored
   history can tell which grader produced its `optimal`/`recommended` fields. Nothing reads it yet

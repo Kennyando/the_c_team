@@ -61,7 +61,22 @@ export async function runReview({ decisions, rules, useModel = true } = {}) {
       return fallback();
     }
 
-    return normalizeReviewResult(parsed, { modelAssisted: true });
+    // oneThingToTry — the headline takeaway, and the line most likely to smuggle in advice the
+    // facts don't support. When the hand has mistakes it must be a { ref, text } naming an
+    // [improve] fact; it is checked on its own (not against usedRefs) because a focus naturally
+    // restates a fix an improvements bullet already made. On a clean hand there is no [improve]
+    // fact to point at, so the model's sentence is dropped for the deterministic focus.
+    let oneThingToTry;
+    if (facts.mistakes.length > 0) {
+      const focus = parsed.oneThingToTry;
+      const focusFact = focus && typeof focus === 'object' ? factById.get(focus.ref) : undefined;
+      if (!focusFact || focusFact.wasOptimal !== false) return fallback();
+      oneThingToTry = focus.text;
+    } else {
+      oneThingToTry = fallback().oneThingToTry;
+    }
+
+    return normalizeReviewResult({ ...parsed, oneThingToTry }, { modelAssisted: true });
   } catch {
     // Bedrock unavailable / throttled / access denied — the review still happens, model-free.
     return fallback();

@@ -33,7 +33,13 @@ const isRefBullet = (b) =>
 const isRefBulletList = (v) =>
   Array.isArray(v) && v.length <= MAX_BULLETS && v.every(isRefBullet);
 
-/** True for the shape the model must return: {ref, text} bullets, not bare strings. Never throws. */
+/**
+ * True for the shape the model must return: {ref, text} bullets, not bare strings.
+ *
+ * `oneThingToTry` is looser here — a {ref, text} bullet OR a plain string — because whether it
+ * must be grounded depends on the facts (a clean hand has no [improve] fact to cite). runReview()
+ * has the facts and does that check; this is shape only. Never throws.
+ */
 export function isModelReviewShape(value) {
   return (
     !!value &&
@@ -41,22 +47,24 @@ export function isModelReviewShape(value) {
     isShortString(value.headline, MAX_HEADLINE) &&
     isRefBulletList(value.goodMoves) &&
     isRefBulletList(value.improvements) &&
-    isShortString(value.oneThingToTry, MAX_BULLET)
+    (isRefBullet(value.oneThingToTry) || isShortString(value.oneThingToTry, MAX_BULLET))
   );
 }
 
 /**
  * Turn a grounded model reply ({ref, text} bullets) into a clean final ReviewResult — drops the
  * refs (they've done their job in validation; surfacing them to the UI is a later step), keeps
- * the text, trims, and caps each list at MAX_BULLETS. Assumes isModelReviewShape(raw) passed.
+ * the text, trims, and caps each list at MAX_BULLETS. `oneThingToTry` may arrive as a {ref, text}
+ * bullet or an already-resolved string. Assumes isModelReviewShape(raw) passed.
  */
 export function normalizeReviewResult(raw, { modelAssisted }) {
   const texts = (list) => list.slice(0, MAX_BULLETS).map((b) => b.text.trim());
+  const focus = raw.oneThingToTry;
   return {
     headline: raw.headline.trim(),
     goodMoves: texts(raw.goodMoves),
     improvements: texts(raw.improvements),
-    oneThingToTry: raw.oneThingToTry.trim(),
+    oneThingToTry: (typeof focus === 'string' ? focus : focus.text).trim(),
     modelAssisted,
   };
 }

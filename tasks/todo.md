@@ -2223,3 +2223,48 @@ the terrible-on-purpose auto-driver's, so real-world fallback rate should be low
      call can exceed 6s, and the client abort was dropping to the offline summary even when the
      model would have answered. The handler allows 15s; the review is post-hand so latency is
      not on any critical path.
+
+---
+
+## Follow-up: ground `oneThingToTry` too (PR #19 review comment)
+
+`goodMoves` / `improvements` are per-item grounded; `oneThingToTry` was still a free
+model-authored sentence — the most prominent line, and the one most likely to smuggle in a
+rules claim the engine never made. Give it the same contract.
+
+- [x] `agents/src/schema.js` — `isModelReviewShape` accepts `oneThingToTry` as either a
+      `{ ref, text }` bullet or a plain short string (shape stays permissive; `runReview` does
+      the fact-aware enforcement). `normalizeReviewResult` resolves a `{ ref, text }` or string
+      focus to its text. Doc comments updated.
+- [x] `agents/src/review/reviewHand.js` — after the bullet grounding: if the hand has any
+      `[improve]` fact, `oneThingToTry` must be `{ ref, text }` whose `ref` names an `[improve]`
+      fact. Checked on its own, NOT against `usedRefs` — the takeaway naturally restates a fix
+      an improvements bullet already made. On a clean hand (no `[improve]` facts) the model's
+      `oneThingToTry` is ignored and the deterministic focus is substituted before normalize.
+- [x] `agents/src/review/prompt.js` — `oneThingToTry` rule + Shape line updated to the
+      `Item | string` contract, noting the id may repeat an improvements Item.
+- [x] `agents/test/reviewHand.test.js` — fixtures move to `{ ref, text }`; added: unknown ref →
+      fallback, `[good]` ref → fallback, bare string with mistakes → fallback, ref reused from
+      improvements → still accepted, clean hand → accepted with deterministic focus.
+- [x] Docs: `agents/README.md` pipeline steps 2–3 + limits bullet; `docs/mvp-notes.md` #9.
+- [x] Verified: `agents` 26/26, `frontend` 102/102 node + 13/13 component, `backend` 25/25 +
+      tsc build. `contract.test.js` (deterministic path) unchanged and green.
+
+### Review
+
+Closed the last grounding gap from the PR #19 review: `oneThingToTry` — the most prominent
+line in the panel — was the only model-authored field with no fact check. It now carries the
+same `{ ref, text }` contract as the bullets when the hand has mistakes, and `runReview()`
+rejects the whole reply (→ deterministic fallback) unless that `ref` names a real `[improve]`
+fact. Its ref is deliberately exempt from the no-reuse rule the bullets follow, because a
+useful takeaway usually restates the top fix. Clean hands have no `[improve]` fact to cite, so
+the model's takeaway is dropped and `assembleReview`'s deterministic focus is used instead —
+the first place the pipeline mixes a deterministic field into a model-assisted result, a
+deliberate call to avoid trusting an ungrounded sentence there.
+
+Scope: schema shape check (permissive), one guard block in `reviewHand.js`, prompt wording,
+5 new tests, 3 doc edits. Public `ReviewResult` type and the frontend/offline path are
+untouched — `oneThingToTry` is still a `string` everywhere outside the model reply. No behaviour
+change on a clean hand or any non-model path.
+
+Follow-up unchanged: surface `ref` (now including the focus's) to `HandReview.jsx`.

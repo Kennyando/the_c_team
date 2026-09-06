@@ -49,7 +49,8 @@ const HAND = [optimalDiscard, badDiscard, missedPong];
 const converse = (text) => ({ output: { message: { content: [{ text }] } } });
 const mockReply = (obj) => mock.method(BedrockRuntimeClient.prototype, 'send', async () => converse(JSON.stringify(obj)));
 
-// A well-grounded reply for HAND: one good bullet on d0, two improve bullets on d1 and d2.
+// A well-grounded reply for HAND: one good bullet on d0, two improve bullets on d1 and d2, and a
+// oneThingToTry Item that reuses d1 (a focus naturally restates a fix a bullet already made).
 const groundedReply = {
   headline: 'Solid hand — you kept your options open.',
   goodMoves: [{ ref: 'd0', text: 'You threw the tile the coach would have picked.' }],
@@ -57,7 +58,7 @@ const groundedReply = {
     { ref: 'd1', text: 'The East Wind could have gone a turn earlier.' },
     { ref: 'd2', text: 'That pong on 7 Bamboo was worth taking.' },
   ],
-  oneThingToTry: 'Let lone winds go before the hand gets tight.',
+  oneThingToTry: { ref: 'd1', text: 'Let lone winds go before the hand gets tight.' },
 };
 
 afterEach(() => mock.restoreAll());
@@ -99,7 +100,7 @@ test('a well-grounded model reply is used, refs stripped, marked modelAssisted',
   assert.deepEqual(result.goodMoves, ['You threw the tile the coach would have picked.']);
   assert.equal(result.improvements.length, 2);
   assert.equal(typeof result.improvements[0], 'string'); // {ref,text} collapsed to text
-  assert.equal(result.oneThingToTry, 'Let lone winds go before the hand gets tight.');
+  assert.equal(result.oneThingToTry, 'Let lone winds go before the hand gets tight.'); // from .text
 });
 
 test('a reply wrapped in a ```json fence is still parsed and used', async () => {
@@ -184,12 +185,57 @@ test('empty goodMoves/improvements are fine as long as what is present is ground
     headline: 'A couple of things to tidy up.',
     goodMoves: [],
     improvements: [{ ref: 'd1', text: 'Let the East Wind go sooner next time.' }],
-    oneThingToTry: 'Shed lone winds early.',
+    oneThingToTry: { ref: 'd2', text: 'Shed lone winds early.' },
   });
   const result = await runReview({ decisions: HAND, rules: RULES });
   assert.equal(result.modelAssisted, true);
   assert.equal(result.goodMoves.length, 0);
   assert.equal(result.improvements.length, 1);
+});
+
+test('oneThingToTry citing an unknown fact id falls back', async () => {
+  mockReply({ ...groundedReply, oneThingToTry: { ref: 'd9', text: 'Focus on a move that never happened.' } });
+  const result = await runReview({ decisions: HAND, rules: RULES });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('oneThingToTry citing a decision the engine graded optimal falls back', async () => {
+  mockReply({ ...groundedReply, oneThingToTry: { ref: 'd0', text: 'Focus on the discard you already got right.' } });
+  const result = await runReview({ decisions: HAND, rules: RULES });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('oneThingToTry as a bare string falls back when the hand has mistakes', async () => {
+  mockReply({ ...groundedReply, oneThingToTry: 'Some ungrounded strategic advice.' });
+  const result = await runReview({ decisions: HAND, rules: RULES });
+  assert.equal(result.modelAssisted, false);
+});
+
+test('oneThingToTry may reuse a decision an improvements bullet already cited', async () => {
+  // improvements cites d1 and d2; oneThingToTry points back at d2 — allowed, not padding.
+  mockReply({ ...groundedReply, oneThingToTry: { ref: 'd2', text: 'Take the pong when it clearly helps.' } });
+  const result = await runReview({ decisions: HAND, rules: RULES });
+  assert.equal(result.modelAssisted, true);
+  assert.equal(result.oneThingToTry, 'Take the pong when it clearly helps.');
+});
+
+test('clean hand: model reply is accepted, oneThingToTry is the deterministic focus', async () => {
+  // No [improve] facts to cite — the model's takeaway is dropped for the deterministic one.
+  mockReply({
+    headline: 'Lovely — every move matched the coach.',
+    goodMoves: [
+      { ref: 'd0', text: 'You threw exactly what the coach would have.' },
+      { ref: 'd1', text: 'And again on the next discard.' },
+    ],
+    improvements: [],
+    oneThingToTry: 'Keep playing exactly like that.',
+  });
+  const clean = [optimalDiscard, optimalDiscard];
+  const result = await runReview({ decisions: clean, rules: RULES });
+  const deterministic = await runReview({ decisions: clean, rules: RULES, useModel: false });
+  assert.equal(result.modelAssisted, true);
+  assert.equal(result.goodMoves.length, 2);
+  assert.equal(result.oneThingToTry, deterministic.oneThingToTry);
 });
 
 // --- infrastructure failure ----------------------------------------------------------------
