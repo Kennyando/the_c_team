@@ -76,6 +76,8 @@ tap targets together; a high-contrast theme where colour is never the only cue;
 Chow/Pong/Kong/Win shown as its own large button; optional voice narration; and
 no timers anywhere.
 
+![The Kaki Mahjong table with the help coach panel open, answering "what's my best line from this hand?"](docs/help-coach.jpg)
+
 A built-in **help coach** answers questions about the rules and the hand in front
 of you ("what does pong do?", "what should I discard?"). It runs entirely locally
 by default. An optional AWS backend adds two model-assisted tiers that degrade
