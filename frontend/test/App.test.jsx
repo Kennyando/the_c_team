@@ -35,7 +35,7 @@ test('Puzzle and Rules are both reachable from Home and return to it', () => {
   expect(screen.getByRole('button', { name: 'Rules' })).toBeTruthy();
 
   fireEvent.click(screen.getByRole('button', { name: 'Rules' }));
-  expect(document.querySelector('iframe[src="/rules.pdf"]')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: /Rules & Regulations/i })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Home' }));
   expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
 });
