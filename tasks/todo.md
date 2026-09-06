@@ -2867,3 +2867,23 @@ Rough edges to iterate on next: side-seat blocks read a little sparse (plate flo
 vertical wall); the far river can grow into the centre board after ~2 rows (the Discards panel is
 the precise read); very short landscape (<= ~450px tall) still crams. Flat view inherits the
 overlay and the seat refactor but was only spot-checked.
+
+### Round 2 of the seated refactor — feedback on the annotated screenshot
+
+- [x] **Flat (top-down) is the default again** (`display.tableView: 'flat'`); `App.test.jsx` back
+      to asserting `view-flat`. Seated stays a Settings option.
+- [x] **Centre board removed entirely.** `CenterBoard.jsx` + `CenterBoard.test.jsx` deleted, the
+      `<CenterBoard>` render and its `.center-*` CSS gone. Nothing replaces it — the middle is
+      open felt.
+- [x] **Ah Gong's exposed sets go to the top-right corner.** `.seat-far` now spans the full
+      width and is flush to the top edge; `.seat-far .seat-open` is `position: absolute; top: 0;
+      right: 0` as a vertical stack, so the far player's melds/flowers park in the corner clear
+      of the plate, wall and discards.
+- [x] **Coach responses were tiny.** `.coach-panel` gets a `font-size: max(16px, …)` floor so
+      the answer text stays readable when the tile slider is low; answer title, quick buttons and
+      `.coach-q` get `max()` floors too; the answer tile is bumped to ~full size; the panel is a
+      touch wider (480px) and `.coach-answers` has a `30vh` min-height so a short answer isn't
+      crammed into a sliver.
+- [x] Verify: 110 node + 25 component green (CenterBoard test removed), build clean. Browser:
+      flat default + seated both show Ah Gong flush-top with corner melds and no centre card;
+      Coach text is comfortably sized.

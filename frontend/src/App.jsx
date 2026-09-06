@@ -79,7 +79,7 @@ export default function App() {
   const [rules, setRules] = useState(START_RULES);
   const [display, setDisplay] = useState(() => ({
     scale: fitScale(), scaleAuto: true, contrast: false, voice: false,
-    tileStyle: 'traditional', coachHints: false, tableView: 'seated',
+    tileStyle: 'traditional', coachHints: false, tableView: 'flat',
   }));
   const [state, setState] = useState(() => newGame(START_RULES, 0));
   const [confirm, setConfirm] = useState(null);

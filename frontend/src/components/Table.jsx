@@ -1,9 +1,6 @@
 import Tile from './Tile.jsx';
 import Seat from './Seat.jsx';
-import CenterBoard from './CenterBoard.jsx';
 import { EDGE_SEATS, discardPosition } from '../game/tableLayout.js';
-
-const WIND_NAME = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
 
 /**
  * The table, seen from your seat.
@@ -13,7 +10,6 @@ const WIND_NAME = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
  */
 export default function Table({ state }) {
   const lastIndex = state.discards.length - 1;
-  const round = `${WIND_NAME[state.prevailingWind] || 'East'} ${state.dealer + 1}`;
 
   return (
     <div className="scene">
@@ -23,13 +19,6 @@ export default function Table({ state }) {
         <Seat className="seat-far" player={state.players[2]} dealer={state.dealer} active={state.turn === 2} />
         <Seat className="seat-right" player={state.players[1]} dealer={state.dealer} active={state.turn === 1} />
         <Seat className="seat-left" player={state.players[3]} dealer={state.dealer} active={state.turn === 3} />
-
-        <CenterBoard
-          round={round}
-          dealer={state.dealer}
-          remaining={state.wall.length}
-          scores={state.players.map((p) => p.points)}
-        />
 
         {/* Each seat's river: a six-wide grid just inside that seat's own edge. */}
         <div className="discard-piles" aria-label="Discarded tiles">
