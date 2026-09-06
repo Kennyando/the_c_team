@@ -117,16 +117,21 @@ test('honour tiles keep their characters, and the White Dragon is a blank frame'
   assert.equal(faceSpec('dw').kind, 'whiteDragon'); // drawn, not written
 });
 
-test('every flower and season has its own motif and index', () => {
-  const motifs = new Set();
+test('every flower and season has a valid index and label', () => {
   for (const tile of [...FLOWERS, ...SEASONS]) {
     const spec = faceSpec(tile);
     assert.equal(spec.kind, 'bonus');
     assert.ok(spec.motif, `${tile} has no motif`);
-    assert.ok(!motifs.has(spec.motif), `${spec.motif} is used twice`);
-    motifs.add(spec.motif);
     assert.equal(spec.index, rankOf(tile));
   }
   assert.equal(faceSpec('f1').label, 'FLOWER');
   assert.equal(faceSpec('s1').label, 'SEASON');
+});
+
+test('all four Flowers intentionally share one motif; Seasons stay distinct', () => {
+  const flowerMotifs = new Set(FLOWERS.map((t) => faceSpec(t).motif));
+  assert.equal(flowerMotifs.size, 1, 'Flowers should render one uniform design');
+
+  const seasonMotifs = new Set(SEASONS.map((t) => faceSpec(t).motif));
+  assert.equal(seasonMotifs.size, 4, 'Seasons should each keep a distinct motif');
 });
