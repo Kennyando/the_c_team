@@ -67,6 +67,8 @@ lambda/join.ts             "join" route — seats a player in a room
 lambda/gameAction.ts       "action" route — moves + Polly narration
 lambda/advise.ts           "advise" route — the move-advisor chatbot
 lambda/classifyIntent.ts   HTTP "/classify-intent" route — help-coach fallback classifier
+lambda/reviewHand.ts       HTTP "/review-hand" route — post-hand review agent (@kaki/agents)
+lambda/coachAnswer.ts      HTTP "/coach-answer" route — last-resort coach agent (@kaki/agents)
 lambda/mahjong/tiles.ts    Tile encoding + human-readable parsing
 lambda/mahjong/shanten.ts  Distance-to-win calculator
 lambda/mahjong/advisor.ts  Legal-call detection + discard recommendation
@@ -106,11 +108,14 @@ answer is used instead; the coach never breaks, and works with zero backend
 deployed at all if `frontend/.env.template`'s `VITE_CLASSIFY_INTENT_URL` is
 left blank.
 
-Swap the model with `npx cdk deploy -c bedrockModelId=<id>` if your account's
-model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
-if you deploy to eu-*, `apac.…` for ap-*), a bigger Nova (`us.amazon.nova-lite-v1:0`),
-or a single-region model such as an Anthropic Claude Haiku id. `-c agentModelId=`
-does the same for the post-hand review route independently. The `bedrock:InvokeModel`
+Swap the coach classifier model with `npx cdk deploy -c bedrockModelId=<id>` if your
+account's model access differs — another inference profile (`eu.amazon.nova-micro-v1:0`
+if you deploy to eu-*, `apac.…` for ap-*) or a single-region model such as an
+Anthropic Claude Haiku id. The **review and coach-answer routes** share `agentModelId`,
+which defaults to `us.amazon.nova-2-lite-v1:0` (Micro contradicts itself on the longer
+output, an 8B model inverts the facts; a `bench/` run of the coach agent then moved the
+default up from Nova Lite to Nova 2 Lite), override with `-c agentModelId=`.
+The `bedrock:InvokeModel`
 IAM policy adapts automatically (`lib/bedrockResources.ts`): a profile id gets the
 profile ARN plus the region-wildcarded base-model ARN, a bare id gets just the one
 foundation-model ARN. A cross-region profile whose `us.` / `eu.` / `apac.` prefix
@@ -150,9 +155,19 @@ itself, not in an auth check:
 - **API Gateway throttling** on `CoachApi`'s stage — `rateLimit: 2` req/s,
   `burstLimit: 5` by default. Override with `-c coachApiRateLimit=` /
   `-c coachApiBurstLimit=` if a real demo needs more headroom.
-- **Reserved concurrency of 2** on `ClassifyIntentFn` — a hard ceiling on how
-  many invocations can run at once, independent of the throttle above.
-  Override with `-c coachApiConcurrency=`.
+- **Reserved concurrency of 2** on `ClassifyIntentFn` and `ReviewHandFn` — the
+  only *hard* ceiling on how many invocations can run at once, independent of
+  the throttle above, and the only thing isolating these routes from
+  consuming the whole account's Lambda concurrency. Override with
+  `-c coachApiConcurrency=`.
+  - `-c coachApiConcurrency=0` **drops that hard cap entirely** — a deployment
+    escape hatch, not a cost-neutral one. Use it only where reserving any is
+    impossible: a restricted account (e.g. a workshop sandbox) can have a
+    Lambda concurrency limit low enough that reserving *any* leaves fewer than
+    the 10 unreserved executions AWS requires account-wide, and `cdk deploy`
+    fails with `decreases account's UnreservedConcurrentExecution below its
+    minimum value of [10]`. With `0`, only the request-rate throttle and the
+    alerting-only Budget remain — those are not an equivalent ceiling.
 
 Both are deliberately conservative for a hackathon project on a small
 Bedrock budget, and both bound the *rate* of Bedrock calls — neither is a
@@ -165,13 +180,15 @@ that also means building a sign-in flow into the frontend, which is out of
 scope for what is currently a single-player, no-accounts MVP (see
 `docs/mvp-notes.md`'s known simplifications).
 
-- **An AWS Budget** is the actual dollar-amount guardrail: `-c
-  coachBudgetAlertEmail=you@example.com` provisions a monthly Budget scoped
-  to Bedrock cost that emails that address once spend crosses 80% of `-c
-  coachBudgetLimitUsd=` (default `20`). Unlike the throttle/concurrency
-  above, this is unset by default — `cdk synth`/`deploy` prints a warning if
-  it's missing, since this endpoint takes no credentials (see below) and is
-  reachable by anyone who has its URL.
+- **An AWS Budget** is the closest thing to a dollar-amount guardrail, but it
+  only *alerts* — it does not stop spend. `-c coachBudgetAlertEmail=you@example.com`
+  provisions a monthly Budget scoped to Bedrock cost that emails that address
+  once spend crosses 80% of `-c coachBudgetLimitUsd=` (default `20`). Unlike
+  the throttle/concurrency above, this is unset by default — `cdk synth`/`deploy`
+  prints a warning if it's missing, since this endpoint takes no credentials
+  (see below) and is reachable by anyone who has its URL. There is no hard
+  spending ceiling anywhere in this stack; sustained abuse accrues cost until
+  someone sees the alert and acts.
 
 ## Prerequisites
 
@@ -195,9 +212,10 @@ npx cdk synth
 
 # Deploys to us-east-1 unless CDK_DEFAULT_REGION is set (see bin/app.ts).
 # us-east-1 is where the hackathon sandbox's org policy permits Bedrock and
-# where the default model profile (us.amazon.nova-micro-v1:0) resolves. If
-# you change the region, also pass -c bedrockModelId / -c agentModelId with
-# that region's inference-profile prefix (eu. / apac.) or a single-region model.
+# where the default model profiles (us.amazon.nova-micro-v1:0 for the coach
+# classifier, us.amazon.nova-2-lite-v1:0 for the review + coach-answer agents)
+# resolve. If you change the region, also pass -c bedrockModelId / -c agentModelId
+# with that region's inference-profile prefix (eu. / apac.) or a single-region model.
 npx cdk deploy
 ```
 
@@ -207,6 +225,13 @@ via `aws cloudformation describe-stacks`):
 - `WebSocketUrl` — the `wss://` endpoint the client app connects to
 - `ClassifyIntentUrl` — set as `VITE_CLASSIFY_INTENT_URL` in the frontend to turn on the help
   coach's model-assisted fallback (optional — the coach works without it)
+- `CoachAnswerUrl` — set as `VITE_COACH_ANSWER_URL` in the frontend for the last-resort coach
+  tier: when a question fits no local pattern *and* the classifier places no existing answer, a
+  model reads the position (facts built server-side from `advisor.js` against this table's
+  rules) and answers in words. Optional and independent of `ClassifyIntentUrl`. Same
+  no-credentials posture as the other two `CoachApi` routes — the shared request-rate throttle
+  (`coachApiRateLimit`/`coachApiBurstLimit`), reserved concurrency (`coachApiConcurrency`), and
+  opt-in Budget are what bound its Bedrock spend. Reuses `agentModelId` (Nova 2 Lite).
 - `UserPoolId` / `UserPoolClientId` — for Cognito sign-in in the client
 - `AssetsBucketName` — upload tile graphics/sounds here (e.g. under `tiles/`)
 - `AssetsDomainName` — the CloudFront domain serving those assets and Polly audio

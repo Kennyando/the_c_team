@@ -219,36 +219,80 @@ const STATIC = {
  * Intents in order — the first pattern to match wins.
  * Advice about *this* position is listed before the general rules, so "should I pong this?" is
  * answered about the tile on the table while "what does pong do?" gets the rule.
+ *
+ * `keywords` are a looser safety net: when no `patterns` entry matches, `ask()` scores each intent
+ * by how many of its keywords appear as whole words (or phrases) in the question. A single intent
+ * has to hold the top score outright — a tie means the words point at more than one intent, which
+ * is not confident enough, so the question falls through to `fallback()` instead. Lists are
+ * deliberately narrow and Mahjong-specific so a stray common word can't misroute a question.
  */
 export const INTENTS = [
-  { id: 'advice.discard', answer: adviceDiscard, patterns: [
-    /what.*(should|do).*(discard|throw|play)/, /(best|optimal|right).*(play|move|discard|tile)/,
-    /which tile/, /what.*(get rid of|let go)/, /^(discard|throw)\??$/,
-  ] },
-  { id: 'advice.claim', answer: adviceClaim, patterns: [
-    /should i.*(pong|peng|chow|chi|kong|gang|call|take|claim)/,
-    /(worth|good idea).*(pong|chow|kong|calling)/, /(pong|chow|kong).*(this|it|that one)/,
-  ] },
-  { id: 'advice.progress', answer: adviceProgress, patterns: [
-    /how (close|near|far)/, /am i (close|near|ready|winning)/, /(tiles?|much).*(away|left to win)/,
-    /waiting (on|for)/, /can i win/,
-  ] },
-  { id: 'advice.value', answer: adviceValue, patterns: [
-    /(my|i).*(hand).*(worth|score|tai)/, /how (many|much).*(tai|points|worth).*(i|my|me)/,
-    /what.*my hand.*worth/, /score my hand/,
-  ] },
-  { id: 'rules.limit', answer: answerLimit, patterns: [/limit/, /maximum|max.*(tai|score|payout)/, /cap/] },
-  { id: 'rules.tai', answer: answerTai, patterns: [/\btai\b/, /scoring|score|points|payment|pay(s|ing)?\b/, /how much.*win/] },
-  { id: 'rules.table', answer: answerRules, patterns: [/house rules?/, /(what|which) rules/, /settings/] },
-  { id: 'rules.wall', answer: answerWall, patterns: [/\bwall\b/, /tiles? (left|remaining)/, /run out/, /\bdraw game\b/] },
-  { id: 'rules.seat', answer: answerSeat, patterns: [/(my )?seat/, /prevailing/, /which wind/, /\bwind\b/] },
-  { id: 'rules.dealer', answer: () => STATIC.dealer, patterns: [/dealer|banker/] },
-  { id: 'rules.pong', answer: () => STATIC.pong, patterns: [/\b(pong|peng|pung)\b/, /three of a kind/, /triplet/] },
-  { id: 'rules.chow', answer: () => STATIC.chow, patterns: [/\b(chow|chi|chii)\b/, /\brun\b/, /\beat\b/, /straight/] },
-  { id: 'rules.kong', answer: () => STATIC.kong, patterns: [/\b(kong|gang|kan)\b/, /four of a kind/] },
-  { id: 'rules.win', answer: () => STATIC.win, patterns: [/how.*win/, /\b(win|hu|mahjong|winning hand)\b/, /complete.*hand/] },
-  { id: 'rules.flowers', answer: () => STATIC.flowers, patterns: [/flower|season|bonus tile|animal/] },
-  { id: 'rules.concealed', answer: () => STATIC.concealed, patterns: [/conceal|expose|face up|hide my hand/] },
+  { id: 'advice.discard', answer: adviceDiscard,
+    patterns: [
+      /what.*(should|do).*(discard|throw|play)/, /(best|optimal|right).*(play|move|discard|tile)/,
+      /which tile/, /what.*(get rid of|let go)/, /^(discard|throw)\??$/,
+      /what (should i|do i|to) do( now| here)?\??$/, /\bmy (move|turn)\b/, /\bwhat now\b/,
+    ],
+    keywords: ['discard', 'discarding', 'throw', 'dump', 'toss', 'chuck', 'ditch'] },
+  { id: 'advice.claim', answer: adviceClaim,
+    patterns: [
+      /should i.*(pong|peng|chow|chi|kong|gang|call|take|claim)/,
+      /(worth|good idea).*(pong|chow|kong|calling)/, /(pong|chow|kong).*(this|it|that one)/,
+    ],
+    keywords: ['call', 'calling', 'claim'] },
+  { id: 'advice.progress', answer: adviceProgress,
+    patterns: [
+      /how (close|near|far)/, /am i (close|near|ready|winning)/, /(tiles?|much).*(away|left to win)/,
+      /waiting (on|for)/, /can i win/,
+    ],
+    // "close" / "near" are left to the patterns above — as bare keywords they catch "close the
+    // coach" / "near the end" and route a UI or filler question to a position readout.
+    keywords: ['tenpai', 'waiting', 'behind', 'progress'] },
+  { id: 'advice.value', answer: adviceValue,
+    patterns: [
+      /(my|i).*(hand).*(worth|score|tai)/, /how (many|much).*(tai|points|worth).*(i|my|me)/,
+      /what.*my hand.*worth/, /score my hand/, /how much (is|would|are).*(hand|this|it|these)/,
+    ],
+    keywords: ['worth', 'value'] },
+  { id: 'rules.limit', answer: answerLimit,
+    patterns: [
+      /limit/, /maximum|max.*(tai|score|payout)/, /cap/,
+      /(biggest|largest|highest).*(hand|score|tai|win|payout)/,
+    ],
+    keywords: ['limit', 'cap', 'capped', 'maximum', 'ceiling'] },
+  { id: 'rules.tai', answer: answerTai,
+    patterns: [/\btai\b/, /scoring|score|points|payment|pay(s|ing)?\b/, /how much.*win/],
+    keywords: ['tai', 'points', 'payout', 'payment', 'scoring'] },
+  { id: 'rules.table', answer: answerRules,
+    patterns: [/house rules?/, /(what|which) rules/, /settings/],
+    keywords: ['rules', 'settings', 'house', 'variant', 'toggles'] },
+  { id: 'rules.wall', answer: answerWall,
+    patterns: [/\bwall\b/, /tiles? (left|remaining)/, /run out/, /\bdraw game\b/],
+    keywords: ['wall', 'remaining', 'pile', 'stock', 'undrawn'] },
+  { id: 'rules.seat', answer: answerSeat,
+    patterns: [/(my )?seat/, /prevailing/, /which wind/, /\bwind\b/],
+    keywords: ['seat', 'wind', 'prevailing'] },
+  { id: 'rules.dealer', answer: () => STATIC.dealer,
+    patterns: [/dealer|banker/],
+    keywords: ['dealer', 'banker'] },
+  { id: 'rules.pong', answer: () => STATIC.pong,
+    patterns: [/\b(pong|peng|pung)\b/, /three of a kind/, /triplet/],
+    keywords: ['pong', 'peng', 'pung', 'triplet'] },
+  { id: 'rules.chow', answer: () => STATIC.chow,
+    patterns: [/\b(chow|chi|chii)\b/, /\brun\b/, /\beat\b/, /straight/],
+    keywords: ['chow', 'chi', 'chii', 'sequence', 'consecutive'] },
+  { id: 'rules.kong', answer: () => STATIC.kong,
+    patterns: [/\b(kong|gang|kan)\b/, /four of a kind/],
+    keywords: ['kong', 'gang', 'kan', 'quad'] },
+  { id: 'rules.win', answer: () => STATIC.win,
+    patterns: [/how\b.*\bwin(ning)?\b/, /\b(win|hu|mahjong|winning hand)\b/, /complete.*hand/],
+    keywords: ['win', 'winning', 'mahjong'] },
+  { id: 'rules.flowers', answer: () => STATIC.flowers,
+    patterns: [/flower|season|bonus tile|animal/],
+    keywords: ['flower', 'flowers', 'season', 'seasons', 'bonus'] },
+  { id: 'rules.concealed', answer: () => STATIC.concealed,
+    patterns: [/conceal|expose|face up|hide my hand/],
+    keywords: ['concealed', 'conceal', 'exposed', 'expose', 'hidden'] },
 ];
 
 /** The tappable questions offered in the panel, so nobody has to type to get help. */
@@ -271,17 +315,47 @@ function fallback() {
   };
 }
 
+function build(intent, state) {
+  const answer = intent.answer(state);
+  return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES) };
+}
+
+/**
+ * Looser second pass: score each intent by how many of its `keywords` appear in the question as
+ * whole words (or, for multi-word keywords, as a phrase). Returns an intent only when exactly one
+ * holds the top score — a tie means the words point at more than one intent, so it's returned as
+ * `null` and the caller falls through to `fallback()` (and, with Phase 2, on to the model).
+ */
+function guessIntent(text) {
+  const words = new Set(text.split(/[^a-z]+/).filter(Boolean));
+  const scored = INTENTS.map((intent) => {
+    let score = 0;
+    for (const kw of intent.keywords || []) {
+      if (kw.includes(' ') ? text.includes(kw) : words.has(kw)) score += 1;
+    }
+    return { intent, score };
+  });
+
+  const top = Math.max(...scored.map((s) => s.score));
+  if (top === 0) return null;
+
+  const leaders = scored.filter((s) => s.score === top);
+  return leaders.length === 1 ? leaders[0].intent : null;
+}
+
 /** Route a question to an answer. Never throws and never returns nothing. */
 export function ask(question, state) {
   const text = String(question || '').toLowerCase().trim();
   if (!text) return fallback();
 
   for (const intent of INTENTS) {
-    if (intent.patterns.some((p) => p.test(text))) {
-      const answer = intent.answer(state);
-      return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES) };
-    }
+    if (intent.patterns.some((p) => p.test(text))) return build(intent, state);
   }
+
+  // No pattern fit — fall back to a keyword score before giving up entirely.
+  const guess = guessIntent(text);
+  if (guess) return { ...build(guess, state), matchedBy: 'keyword' };
+
   return { ...fallback(), intent: 'fallback' };
 }
 
@@ -295,19 +369,25 @@ export const STATIC_ANSWERS = STATIC;
 // `ask()` above is untouched and stays fully local and synchronous — every existing behaviour,
 // and every test against it, is unaffected by anything below this line.
 //
-// `askWithModel()` wraps it: only when the local keyword patterns find no match does it ask a
-// backend model to pick which *existing* intent best fits the wording. The model never writes
-// what the player reads — it only chooses which of the handlers above to call — so none of the
-// accuracy guarantees above (correct by construction, aware of this table's own house rules) are
-// weakened. If no endpoint is configured, or the call fails, times out, or returns anything we
-// don't recognise, the original local fallback is returned unchanged. This is the upgrade path
-// docs/mvp-notes.md's known-limitation #7 names: "keep the local answers and use a model only to
-// interpret the question."
+// `askWithModel()` wraps it and only reaches for the network when `ask()` returned its guided
+// fallback (nothing matched). Two tiers, either of which can be left unconfigured:
+//
+//   1. classify-intent — the model picks which *existing* rules-accurate handler fits the
+//      wording. It never writes what the player reads; guarantees above are untouched.
+//   2. coach-answer — the model reads the position and answers in its own words. This one *does*
+//      write player-facing text, a deliberate exception (docs/mvp-notes.md #7). It is fenced:
+//      the backend builds the facts from advisor.js against this table's rules, the reply is
+//      length-checked, the answer is flagged `modelAssisted` for the UI, and any failure falls
+//      through to the local `fallback()` — so the floor is always the offline coach.
 
 // import.meta.env only exists under Vite; plain Node (the test runner) leaves it undefined, so
-// this is unconfigured — and askWithModel falls straight back to ask() — in every test.
+// these are unconfigured — and askWithModel falls straight back to ask() — in every test.
 const CLASSIFY_INTENT_URL = import.meta.env?.VITE_CLASSIFY_INTENT_URL;
 const CLASSIFY_TIMEOUT_MS = 4000;
+const COACH_ANSWER_URL = import.meta.env?.VITE_COACH_ANSWER_URL;
+// A cold Lambda plus a Bedrock call; the handler itself allows 15s. Same reasoning as
+// review.js's REVIEW_TIMEOUT_MS — the coach is not on any critical path.
+const COACH_ANSWER_TIMEOUT_MS = 13000;
 
 /**
  * Calls the backend classifier. Never throws: any failure is reported as `null`.
@@ -339,32 +419,89 @@ async function classifyIntentRemote(question, url) {
   }
 }
 
+/** The `state` subset the coach agent needs to rebuild the position — never opponents' hands. */
+function serializePosition(state) {
+  const seats = Array.isArray(state.players) ? state.players : [];
+  return {
+    hand: seats[0]?.hand ?? [],
+    melds: seats.map((p) => p?.melds ?? []),
+    bonus: seats.map((p) => p?.bonus ?? []),
+    discards: state.discards ?? [],
+    wallCount: state.wall?.length ?? 0,
+    turn: state.turn,
+    phase: state.phase,
+    dealer: state.dealer,
+    prevailingWind: state.prevailingWind,
+    rules: state.rules,
+    claimOptions: state.claimOptions ?? [],
+    pending: state.pending ?? null,
+  };
+}
+
 /**
- * Route a question exactly like `ask()`, but escalate to the model classifier when — and only
- * when — the local patterns found nothing. Always resolves; never throws.
- *
- * Takes `getState()`, not a state value, and calls it twice: once before the classify round trip
- * and again after. The game keeps moving on its own timer while that request is in flight (up to
- * `CLASSIFY_TIMEOUT_MS`), so re-reading state after the await avoids answering against a position
- * that's no longer current by the time the model responds — e.g. "not your turn yet" only catches
- * a turn that changed *during* the wait if the check runs against the state that's true now, not
- * the state at the moment the question was asked.
- *
- * `classifyUrl` defaults to the configured endpoint and only ever needs overriding in tests
- * (frontend/test/integration/ wires it to a fake handler) — Coach.jsx always calls this with
- * just the two arguments.
+ * Asks the coach agent to read the position and answer the question in words. Never throws: any
+ * failure (no endpoint, non-2xx, timeout, malformed reply) is reported as `null`.
  */
-export async function askWithModel(question, getState, { classifyUrl = CLASSIFY_INTENT_URL } = {}) {
+async function answerFromModel(question, state, coachUrl) {
+  if (!coachUrl) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), COACH_ANSWER_TIMEOUT_MS);
+  try {
+    const res = await fetch(coachUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, position: serializePosition(state) }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const { answer } = await res.json();
+    const wellFormed =
+      answer &&
+      typeof answer.title === 'string' &&
+      Array.isArray(answer.lines) &&
+      answer.lines.length > 0 &&
+      answer.lines.every((l) => typeof l === 'string');
+    return wellFormed ? { title: answer.title, lines: answer.lines.slice(0, MAX_LINES) } : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Route a question exactly like `ask()`, but when the local patterns find nothing, escalate:
+ * first to the classifier (pick an existing handler), then to the coach agent (answer in words).
+ * Always resolves; never throws.
+ *
+ * Takes `getState()`, not a state value, and re-reads it after each round trip. The game keeps
+ * moving on its own timer while a request is in flight, so answering against the state that is
+ * true *now* — not the snapshot from when the question was asked — is what makes "not your turn
+ * yet" and the position facts the coach agent gets stay correct.
+ *
+ * `classifyUrl` / `coachUrl` default to the configured endpoints and only need overriding in
+ * tests — Coach.jsx always calls this with just the two arguments.
+ */
+export async function askWithModel(
+  question,
+  getState,
+  { classifyUrl = CLASSIFY_INTENT_URL, coachUrl = COACH_ANSWER_URL } = {},
+) {
   const local = ask(question, getState());
   if (local.intent !== 'fallback') return local;
 
+  // Tier 1: the classifier picks one of the existing, rules-accurate handlers.
   const intentId = await classifyIntentRemote(question, classifyUrl);
-  if (!intentId) return local;
+  const intent = intentId ? INTENTS.find((i) => i.id === intentId) : null;
+  if (intent) {
+    const answer = intent.answer(getState());
+    return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
+  }
 
-  // Never trust the remote id blindly: only ever dispatch to an intent we actually know about.
-  const intent = INTENTS.find((i) => i.id === intentId);
-  if (!intent) return local;
+  // Tier 2: nothing fit a handler — let the coach agent read the position and answer in words.
+  const written = await answerFromModel(question, getState(), coachUrl);
+  if (written) return { ...written, intent: 'model.coach', modelAssisted: true };
 
-  const answer = intent.answer(getState());
-  return { ...answer, intent: intent.id, lines: answer.lines.slice(0, MAX_LINES), modelAssisted: true };
+  return local;
 }

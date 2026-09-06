@@ -122,6 +122,9 @@ export default function Coach({ state, voice, hints, initialOpen = false }) {
             {entry.question && <p className="coach-q">{entry.question}</p>}
             <div className="coach-a">
               <strong>{entry.answer.title}</strong>
+              {entry.answer.modelAssisted && (
+                <span className="coach-a-ai" title="Answered by AI from the current hand">AI</span>
+              )}
               {entry.answer.tile && (
                 <div className="coach-a-tile"><Tile tile={entry.answer.tile} small /></div>
               )}

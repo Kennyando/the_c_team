@@ -194,16 +194,51 @@ These are deliberate MVP boundaries, not defects:
 6. **State is in memory only.** Reloading the page starts a fresh session — no profiles, friends
    list or game history (those need Phase 3's Cognito and DynamoDB).
 7. **The coach understands set phrasings, not free-form English — partially addressed.** It covers
-   the questions players actually ask, and offers tappable ones, so an unusual wording used to fall
-   straight back to a menu of suggestions. `askWithModel()` in `src/game/coach.js` now escalates
-   exactly that case to a Bedrock-backed classifier (`backend/lambda/classifyIntent.ts`, deployed
-   separately) which picks which *existing* local answer fits — the model never writes what the
-   player reads, so the accuracy guarantees above are unchanged. Optional: with no backend deployed
-   (`VITE_CLASSIFY_INTENT_URL` unset), the coach behaves exactly as before, 100% local. The route
-   takes no credentials (see `backend/README.md`'s "no credentials — throttling is the actual
-   defense" section), so it's deliberately rate-limited and concurrency-capped rather than
-   authenticated — appropriate for a same-table coach, but worth revisiting if this ever needs
-   real accounts.
+   the questions players actually ask, and offers tappable ones. `ask()` in `src/game/coach.js`
+   first tries ordered regex patterns, then a keyword score (an unmatched-but-obvious question
+   still reaches the right handler; a tie or a blank falls through). `askWithModel()` then adds
+   two optional network tiers, each independently gated on its own `VITE_*` URL — with neither
+   set, the coach is 100% local and behaves exactly as before:
+   - **classify-intent** (`backend/lambda/classifyIntent.ts`) picks which *existing* local answer
+     fits an unusual wording. The model never writes what the player reads, so the accuracy
+     guarantees above hold.
+   - **coach-answer** (`backend/lambda/coachAnswer.ts` → `runCoachAnswer` in `@kaki/agents`) is
+     the last resort: a model reads the position and answers in its own words. This one *does*
+     write player-facing text — a deliberate exception. It is fenced:
+     - `coachContext()` builds the evidence server-side from `advisor.js` against this table's
+       house rules as **structured typed facts** (`{ id, type, ...data }` — `id` is `f0`, `f1`,
+       …), which `renderFact()` turns into the sentences the prompt shows.
+     - `relevantFacts(facts, question)` narrows the situational facts (the discard pick, the
+       claim options, the hand's value) to the ones the question's wording points at — core
+       facts (rules / seat / wall / distance / waits) are always kept, and if nothing situational
+       clearly matches, all are kept.
+     - the model must return `{ answer: [{ refs, text }] }` and cite, per line, the fact ids it
+       rests on; `runCoachAnswer()` drops the whole reply unless every cited id was in the
+       (narrowed) prompt, and no line: asserts a scoring pattern this table does not play
+       (`half flush` / `full flush` / `all pungs` / `all chows`, checked against the rules fact's
+       key list); states a tai / point / wall-count number that a fact it cited contradicts;
+       treats a non–Singapore-Mahjong concept (riichi, dora, furiten, …) as applicable; or claims
+       to know a concealed hand it was never given (an opponent's tiles). Each check is scoped to
+       the *clause* the phrase sits in, and skips a clause that hedges or dismisses the thing —
+       "no, riichi isn't a rule here" and "don't chase a full flush" are good answers, not
+       inventions, and a hedge or "limit" elsewhere in the sentence doesn't excuse a separate
+       definite claim.
+     - the answer is flagged so the UI badges it "AI"; any failure drops to the local guided
+       fallback.
+
+     It is *additive*, never a regression: every rules answer above is still delivered by the
+     guaranteed local/classifier path.
+
+   Both routes take no credentials (see `backend/README.md`'s "no credentials — throttling is the
+   actual defense" section) — deliberately rate-limited and concurrency-capped rather than
+   authenticated, appropriate for a same-table coach but worth revisiting if this ever needs real
+   accounts.
+
+   The grounding is existence + rule-set + pinned-number level, not full semantic entailment: a
+   line that reasons *about* the facts (rather than stating a rule or copying a number) is taken
+   on the model's word. Tightening that further would mean either a second model pass to judge
+   entailment or much richer typed facts — neither is warranted for a last-resort help answer
+   that already degrades safely.
 8. **Discard advice now weighs hand value alongside speed, but mostly as a tie-breaker in
    practice — partially addressed.** `bestDiscard()`/`evaluateDiscard()` in `advisor.js` blend
    resulting shanten with `estimateValue()`: an exact expected-value calculation at tenpai (real
@@ -268,10 +303,14 @@ These are deliberate MVP boundaries, not defects:
    `@kaki/game`), pinned by `agents/test/contract.test.js` — so the review can't differ by
    deployment. It works fully offline; with `VITE_REVIEW_URL` set it POSTs the log to
    `backend/lambda/reviewHand.ts`, where the `@kaki/agents` package has a cheap Bedrock model
-   *phrase* the same already-graded facts more warmly — the model never computes or judges anything,
-   and a grounding check drops any reply that claims more than the facts support, so the accuracy
-   guarantees hold exactly as for the classify-intent coach fallback. Any failure (no URL, non-2xx,
-   timeout, malformed or ungrounded reply) falls back to the offline summary. `src/game/puzzles.js`/
+   *phrase* the same already-graded facts more warmly — the model never computes or judges anything.
+   Per-item grounding enforces that: the model must tag each bullet — and the `oneThingToTry`
+   takeaway, on any hand with mistakes — with the id of the decision it's about, and `runReview()`
+   drops the whole reply unless every one names a real decision whose engine grade matches its
+   "well played" / "next time" bucket. (A clean hand has no mistake to point `oneThingToTry` at, so
+   the deterministic focus is used there.) So the accuracy guarantees hold exactly as for the
+   classify-intent coach fallback. Any failure (no URL, non-2xx, timeout, malformed or ungrounded
+   reply) falls back to the offline summary. `src/game/puzzles.js`/
    `puzzleLibrary.js` and the `Puzzle` screen remain the other piece built on the same `advisor.js`
    grading. Still not built: per-player mistake history across hands (needs accounts — Phase 3+),
    claim puzzles, and any link between a puzzle and your own past decisions. See `agents/README.md`
@@ -285,9 +324,10 @@ These are deliberate MVP boundaries, not defects:
     evidence is direct, not theoretical: `tieCount` thresholds have now been recalibrated three
     times in this project's history (once for the original metric, once when value-awareness
     landed, once when ukeire landed), each recalibration was needed purely because the evaluator got
-    better at distinguishing candidates, and the third one alone flipped 8 of the 9 curated puzzles'
-    difficulty labels and left 53% of random hands with a *uniquely* best tile — none of which
-    implies the underlying positions got easier or harder for an actual player to reason about.
+    better at distinguishing candidates, and the third one alone flipped 8 of the (then 9, now 15)
+    curated puzzles' difficulty labels and left 53% of random hands with a *uniquely* best tile —
+    none of which implies the underlying positions got easier or harder for an actual player to
+    reason about.
 
     Two directions were considered for a more stable difficulty signal, deliberately not built yet:
     - **Score margin / candidate ambiguity** — the gap between the best candidate's `blended` score

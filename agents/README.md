@@ -1,8 +1,37 @@
 # @kaki/agents — AI agent framework
 
-How AI agents plug into Kaki Mahjong. One agent is built today (post-hand **Review**); the
-structure is sized so the next two (a richer coach, a thinking-bot opponent) drop in without a
-rewrite.
+How AI agents plug into Kaki Mahjong. Two agents are built today — the post-hand **Review**
+(`src/review/`) and the last-resort help-**Coach** answer (`src/coach/`) — and the structure is
+sized so the next (a thinking-bot opponent) drops in without a rewrite.
+
+The Coach agent bends one rule the Review agent keeps: it is allowed to *write* the answer, not
+just phrase graded facts. It is still fenced:
+
+- `coachContext.js` builds the position evidence deterministically from `advisor.js` against the
+  table's house rules as structured typed facts (`{ id, type, ...data }`, ids `f0`, `f1`, …).
+  `renderFact()` turns each into the sentence the prompt shows, so wording is a prompt concern,
+  not part of what an answer may cite.
+- `relevantFacts(facts, question)` narrows the situational facts to what the question is about;
+  core facts (rules / seat / wall / distance / waits) are always kept.
+- the reply must be `{ answer: [{ refs, text }] }`; `runCoachAnswer()` drops it unless every
+  cited id was in the (narrowed) prompt, and no line: asserts a scoring pattern the table does
+  not play (rules fact's `keys`, not the prose); states a tai / point / wall-count number a cited
+  fact contradicts; treats a non–Singapore concept (riichi, dora, furiten, …) as applicable; or
+  claims to know an opponent's concealed tiles. Each of those is scoped to the phrase's own
+  clause and skips a clause that hedges or dismisses it ("no, that isn't a rule here").
+- any failure → a fixed deterministic answer (the frontend's own local coach is the real
+  offline floor).
+
+Grounding is existence + rule-set + pinned-number + out-of-scope level, not full entailment — a
+line that *reasons about* the facts is taken on trust. See `docs/mvp-notes.md` #7.
+
+The `bench/` harness (`npm run bench:coach`, opt-in, real Bedrock, never in `npm test`) runs a
+fixed 40-question set — weighted toward the adversarial cases — through the whole pipeline to
+compare candidate models. Each case has an `expect` (`answer` — a fact-grounded reply exists;
+`decline` — nothing can support one). The table reports **`accept (answer-cases)`** and
+**`leaked (decline-cases)`** separately, because "the pipeline accepted the reply" is *not* a
+quality signal — a model that reasons past the facts scores higher until a guardrail catches it.
+For a real comparison, fill in the per-case `humanVerdict` in `bench/out/<model>.json`.
 
 ## The shape every agent has
 
@@ -14,18 +43,22 @@ deterministic context  ─►  one model call  ─►  parse + strict validate  
 
 1. **Context builders** (`src/context/`) run first. They are pure functions over game data — no
    model, no judgement of their own. For Review they restate `state.decisions`, which the engine
-   already graded against `advisor.js` when each move was made. The restatement itself lives in
-   `frontend/src/game/reviewCore.js` and is re-exported here through `@kaki/game`, so the
-   frontend's offline review and this package's fallback build facts from one implementation
-   (pinned by `test/contract.test.js`).
+   already graded against `advisor.js` when each move was made. Each fact carries a stable id
+   (`d0`, `d1`, …). The restatement lives in `frontend/src/game/reviewCore.js` and is re-exported
+   here through `@kaki/game`, so the frontend's offline review and this package's fallback build
+   facts from one implementation (pinned by `test/contract.test.js`).
 2. **One model call** (`src/model.js` — the *only* place a model is invoked) turns those facts
-   into warm, plain sentences. It never computes anything; the facts are the analysis. This is
-   the same guarantee `backend/lambda/classifyIntent.ts` gives: the model never writes the
-   authoritative content.
-3. **Validate** against `src/schema.js` (shape), then against the facts (grounding): a reply that
-   lists more "improve" notes than there were sub-optimal moves, or more "well played" notes than
-   there were optimal ones, isn't grounded in the decision log and is discarded. Anything that
-   doesn't fit — wrong type, too long, ungrounded, model errored, no model configured — falls to:
+   into warm, plain sentences. It is required to return each bullet as `{ ref, text }` — `ref`
+   naming the fact the bullet is about — and, when the hand has mistakes, `oneThingToTry` the
+   same way. It never computes anything; the facts are the analysis.
+3. **Validate** — shape (`src/schema.js`: is it `{ ref, text }` bullets, within length caps?),
+   then **per-item grounding** in `runReview()`: for every bullet, `ref` must name a real fact,
+   that fact's own grade must match the bullet's bucket (a "well played" bullet on a decision the
+   engine graded sub-optimal — or the reverse — is not grounded), and no fact may be cited twice
+   across the two lists. `oneThingToTry` is held to the same contract — it must cite an `[improve]`
+   fact (its id *may* repeat one an improvements bullet used) — unless the hand is clean, in which
+   case the deterministic focus is substituted. Any bullet that fails, or any shape/parse/model
+   error, falls to:
 4. **Deterministic fallback** (`src/review/deterministic.js` → `assembleReview` from `@kaki/game`)
    assembles the same facts with no model. It is both the offline default and the guaranteed
    floor, so a caller always gets a well-formed result, and it is byte-identical to the frontend's
@@ -47,7 +80,7 @@ var:
 
 | Var | Default | Notes |
 |---|---|---|
-| `AGENT_MODEL_ID` | falls back to `BEDROCK_MODEL_ID`, then `us.amazon.nova-micro-v1:0` | US cross-region inference profile for the cheapest Bedrock text model. Match the prefix to the region (`us.` / `eu.` / `apac.`). Swap to `us.amazon.nova-lite-v1:0` or an `anthropic.claude-haiku…` id if review prose is too stiff |
+| `AGENT_MODEL_ID` | `us.amazon.nova-2-lite-v1:0` (US cross-region inference profile) | Micro contradicts itself and an 8B model inverts the graded facts; a `bench/` run of the coach agent then moved the default from Nova Lite up to Nova 2 Lite (same JSON reliability, tighter answers). Still cents per thousand calls. Match the prefix to the region (`us.` / `eu.` / `apac.`). Override as needed. |
 | `BEDROCK_REGION` / `AWS_REGION` | — | region for the Bedrock client |
 
 `callModel()` uses a low temperature and a tight `maxTokens`, does not retry, and does not fan
@@ -86,10 +119,10 @@ output, so the two model-free paths can never drift.
 
 ## Known limits / follow-ups
 
-- **Grounding is count-based, not per-item.** The guard checks the model didn't produce *more*
-  notes than the facts support; it doesn't yet verify each individual note maps to a specific
-  decision whose engine-grade backs that classification. A stronger version would have review
-  items carry a `decisionId` and validate each one against the graded decision it points at.
+- **Grounding refs are validated but not surfaced.** Each model bullet — and `oneThingToTry`
+  when the hand has mistakes — carries a `ref` to the decision it's about and `runReview()` holds
+  it to that decision's grade, but the `ref` is dropped before the result reaches the frontend.
+  Passing it through would let `HandReview.jsx` link a bullet to its tile / turn on the table.
 - **`advisorVersion` is stamped but not yet consumed.** Every decision record now carries
   `advisorVersion` (`ADVISOR_VERSION` in `frontend/src/game/advisor.js`), so a review of stored
   history can tell which grader produced its `optimal`/`recommended` fields. Nothing reads it yet

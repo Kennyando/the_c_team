@@ -683,6 +683,18 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 [data-theme='contrast'] .coach-a { background: #000; color: var(--highlight); border-color: var(--highlight); }
 .coach-a strong { display: block; margin-bottom: 6px; font-size: calc(18px * var(--tile-scale)); }
+/* Marks an answer a model wrote from the current hand, rather than a rules-guaranteed one. */
+.coach-a-ai {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  font-size: calc(11px * var(--tile-scale));
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .coach-a-tile { margin-bottom: 8px; }
 .coach-a p { margin: 0 0 6px; line-height: 1.45; }
 .coach-a p:last-child { margin-bottom: 0; }

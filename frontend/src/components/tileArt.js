@@ -73,15 +73,19 @@ export const HONOUR_GLYPHS = {
 
 /**
  * Simple motifs for the bonus tiles.
- * The four Flowers are the traditional plants. The four Seasons are stylised: a real set shows
- * figurative scenes (fisherman, woodcutter, farmer, scholar), which do not survive being drawn at
- * tile size — so they get a seasonal mark plus their number instead.
+ * The four Flowers (梅 plum / 蘭 orchid / 菊 chrysanthemum / 竹 bamboo) share one uniform flower
+ * shape rather than four distinct plant illustrations — matching the reference set, where all
+ * four/eight bonus tiles read as "a flower tile" at a glance, differentiated by the corner number
+ * rather than by botanically distinct artwork.
+ * The four Seasons stay distinct: a real set shows figurative scenes (fisherman, woodcutter,
+ * farmer, scholar), which do not survive being drawn at tile size — so they get a seasonal mark
+ * plus their number instead.
  */
 export const MOTIFS = {
-  f1: 'blossom',   // 梅 plum
-  f2: 'orchid',    // 蘭
-  f3: 'chrys',     // 菊 chrysanthemum
-  f4: 'bamboo',    // 竹
+  f1: 'flower',
+  f2: 'flower',
+  f3: 'flower',
+  f4: 'flower',
   s1: 'sprout',    // 春 spring
   s2: 'sun',       // 夏 summer
   s3: 'leaf',      // 秋 autumn

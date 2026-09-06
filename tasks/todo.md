@@ -2097,316 +2097,556 @@ Next: `cdk bootstrap` + `cdk deploy` in the sandbox, set `VITE_REVIEW_URL`, play
 
 backend 25/25 (17 + 8 new), agents 17/17, frontend 102/102. `cdk synth` clean.
 
----
+## Deploy fix: optional reserved concurrency
 
-## Table polish — tile tooltip, honest wall count, discard/draw animation
+First `cdk deploy` into the workshop sandbox failed:
+`Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution
+below its minimum value of [10]`. The sandbox account's Lambda concurrency limit is low enough
+that reserving 2 on each Coach Lambda leaves < 10 unreserved account-wide, which AWS rejects.
 
-- [x] **Tile name on hover.** `Tile.jsx` puts `tileName(tile)` on a `data-name`
-  attribute; `styles.css` `.tile::after` shows it as a small chip on
-  `:hover` / `:focus-visible`. One component, covers every tile in the app.
-- [x] **Wall count tallies with the felt.** `tableLayout.js` `wallStacks` no
-  longer halves the count into fake two-high stacks — it splits `remaining`
-  evenly across the four edges and returns `{ edge, tiles }` summing to
-  `remaining`. `Table.jsx` renders one `.wall-tile` back per tile; `styles.css`
-  `.wall-edge` is a single-row flex along each edge (see "single-row wall"
-  below — an earlier 2-row grid was reverted). Test file updated.
-- [x] **Discard / draw animation.** `styles.css` `discard-in` (newest discard
-  rises + fades into its pile) and `draw-pop` (`.hand-tiles .tile.just-drawn`
-  scales in). Both disabled under `prefers-reduced-motion`.
+- [x] `kaki-mahjong-stack.ts` — `coachApiConcurrency = 0` now omits `reservedConcurrentExecutions`
+     entirely (via a `> 0 ? n : undefined` var) instead of setting it to 0 (which would throttle
+     the function to nothing). Default stays 2 for a normal account.
+- [x] `backend/README.md` — document `-c coachApiConcurrency=0` and the exact error it fixes.
+- [x] `cdk synth` verified: default emits `ReservedConcurrentExecutions: 2` on both Coach
+     Lambdas; `-c coachApiConcurrency=0` emits neither.
 
-A follow-up experiment that replaced the wall with per-player face-down racks
-was reverted at the user's request; the wall display above is the current
-state.
-
-backend/agents unchanged; frontend 102/102, `vite build` clean.
+Redeploy: `npx cdk deploy -c coachBudgetAlertEmail=… -c coachApiConcurrency=0` (after the failed
+stack's rollback finishes).
 
 ---
 
-## PR #16 review — restore opponent racks (3D)
+# Default the review agent to Nova Lite
 
-Review comment on PR #16 (`feature/tiles-3d-upright`): keep the 3D tile work but
-bring back the opponent concealed racks that commit `0a1f8d9` dropped, restyled
-to match the new 3D tiles. (A second, "longer term" point — move seat/wall/river
-geometry into `tableLayout.js` and use 6-column discard rivers — is left as a
-deferred follow-up: the reviewer framed it as long-term and sibling PR #17 was
-rejected for attempting it.)
+After deploying and comparing three Bedrock models on real hands:
 
-- [x] **`Tile.jsx`** — re-added the `TileBack` export (`<span class="tile-back">`).
-- [x] **`Seat.jsx`** — restored the rack: `player.hand.map(() => <TileBack/>)`
-  with the `holds N tiles` aria-label, rendered above the name plate so the far
-  seat's name clears the top-centre log toast.
-- [x] **`styles.css`** — `.rack` is a single non-wrapping flex row; `.tile-back`
-  is a green backed tile with the same `--tile-lift` + a dark green base as the
-  felt's 3D tiles, `flex: 1 1 0` with a `max-width` cap so the wide far seat
-  shows them larger and the narrow side seats shrink to keep one line.
-  `.seat` gap 6→10px so the plate clears the rack's lift shadow. High-contrast
-  variant added.
+| Model | Result |
+|---|---|
+| `us.amazon.nova-micro-v1:0` | Grounded but contradicts itself (praised discarding a tile, then said keep it); choppy tone. |
+| `us.amazon.nova-lite-v1:0` | Coherent, no contradictions; pads slightly with generic advice. **Best.** |
+| `us.meta.llama3-1-8b-instruct-v1:0` | Inverts the graded facts into wrong advice ("discard stronger tiles"). Unusable. |
 
-Verified in headless Chromium: all three opponents show a single row of green
-3D backs, count = hand size (13, or 14 on their turn, checked across bot turns);
-wall still drawn; name plates readable. frontend 102 + 13 tests pass, build
-clean. Not committed/pushed.
+## Todo
 
-**Reverted at the user's request (see below).** The green racks read as visual
-noise between the player and each opponent's discards; the wall and the seat
-plate already show where each player sits.
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `agentModelId` defaults to `us.amazon.nova-lite-v1:0`
+     instead of falling through to `bedrockModelId`. Classify-intent stays on Nova Micro
+     (`bedrockModelId`) — a one-token classification doesn't need the extra capability.
+- [x] `agents/src/model.js` — local-run fallback `us.amazon.nova-micro-v1:0` → `us.amazon.nova-lite-v1:0`
+     (dropped the `BEDROCK_MODEL_ID` middle rung — agent and classifier now pick models separately).
+- [x] `backend/README.md`, `agents/README.md` — document the split and the rationale.
+- [x] Also folded in two commits stranded on the merged `feature/bedrock-us-east-1` branch:
+     `-c coachApiConcurrency=0` support (5fea7e3) and gitignoring `.env.local` (0a54b1e).
+
+`cdk synth`: `AGENT_MODEL_ID = us.amazon.nova-lite-v1:0`, `BEDROCK_MODEL_ID = us.amazon.nova-micro-v1:0`.
+backend 25/25, agents 17/17, frontend 102/102.
+
+Still open: per-item grounding (each review bullet must cite a specific logged decision; the
+validator rejects a reply whose bullet references no real decision, or references one whose grade
+doesn't support the good/improve bucket). That's the fix for Lite's generic padding.
+
+## PR #15 review — changes made
+
+- [x] **Concurrency=0 docs (operational suggestion).** Reworded the stack comment and
+     `backend/README.md` so `-c coachApiConcurrency=0` reads as a *deployment* escape hatch that
+     trades away the only hard per-function concurrency ceiling (and the isolation from one route
+     eating the account's Lambda concurrency) — not implying the API Gateway throttle (a
+     request-*rate* cap) and the Budget (alerting only, no enforced ceiling) provide an equivalent
+     cost bound. Also softened "the Budget is the actual dollar-amount guardrail" → "closest thing,
+     but it only alerts; there is no hard spending ceiling anywhere in this stack".
+- [ ] **Per-item grounding (architecture follow-up).** Reviewer reinforced this as the durable
+     correctness boundary (Lite is a quality improvement, not the mechanism). Already tracked as a
+     follow-up; will land as its own PR:
+     `review item → decisionId → verify decision exists → verify its grade supports the item's bucket`.
+
+- [x] **Validate coachApiConcurrency (follow-up comment).** Was `Number(ctx ?? 2)` then
+     `> 0 ? n : undefined`, so `-1`, `abc` (NaN), and `1.5` all silently fell through to "omit the
+     cap". Now throws at synth unless the value is a non-negative integer — `0` is the only value
+     that omits the cap, deliberately. Verified all six cases: omitted→2, `=5`→5, `=0`→omitted,
+     `-1`/`abc`/`1.5`→synth fails with a clear message.
 
 ---
 
-## Single-row wall + drop the green opponent racks
+# Per-item grounding for the review agent
 
-The user asked for the table wall to be a single row again, and for the green
-face-down racks above each opponent (the "PR #16 review" change above) to be
-removed. The tile hover tooltip and the discard/draw animations from "Table
-polish" stay; the honest one-back-per-tile wall count stays (a single row holds
-it fine in practice — ~23 backs per edge just after the deal).
+The PR #11/#15 review's durable-correctness ask, and the fix for the model drift seen in the
+Micro/Lite/Llama comparison (Micro contradicted itself, Lite padded with platitudes, Llama
+inverted facts — all schema-valid). Reviewer's chain:
+`review item → decisionId → verify decision exists → verify its grade supports the item's bucket`
 
-- [x] **`styles.css` — wall.** `.wall-edge` back to a single-row flex
-  (`display: flex; overflow: hidden`); `.wall-edge-far/-near` get `max-width: 92%`
-  so a pre-deal full-wall count clips instead of overflowing the felt. `.stack`
-  is gone already; `.wall-tile` unchanged.
-- [x] **`Seat.jsx`** — reverted to the no-rack version (`git checkout HEAD`).
-- [x] **`Tile.jsx`** — removed the re-added `TileBack` export; kept the
-  `data-name` tooltip attributes.
-- [x] **`styles.css` — opponents.** Deleted `.rack` / `.tile-back` /
-  its high-contrast variant; `.seat` gap back to 6px.
+## What changed
+
+- `frontend/src/game/reviewCore.js` — each fact from `decisionFacts()` now carries a stable
+  `id` (`d<index>`, its position in `state.decisions`). `assembleReview` output is unchanged.
+- `agents/src/schema.js` — the model must now return each bullet as `{ ref, text }`, not a bare
+  string. `isModelReviewShape()` replaces `isReviewResult()` (removed — was unused after this).
+  `normalizeReviewResult()` drops the refs and keeps the text for the final `string[]` output
+  (frontend contract unchanged).
+- `agents/src/review/prompt.js` — facts are listed with their ids; the system prompt requires
+  `{ ref, text }` bullets, each `ref` naming exactly one listed fact, a `[good]` fact for a
+  goodMoves bullet / `[improve]` for improvements, no id reused.
+- `agents/src/review/reviewHand.js` — after the shape check, per-item grounding: every bullet's
+  `ref` must resolve to a real fact whose `wasOptimal` matches the bullet's bucket, and no `ref`
+  twice. Any failure → deterministic fallback. The old count-based guard is removed (subsumed).
+- `agents/test/reviewHand.test.js` — reworked: grounded-reply-used, refs-stripped, old
+  bare-string shape rejected, unknown ref → fallback, wrong-bucket ref → fallback (both
+  directions), duplicate ref → fallback, empty lists fine.
+- Docs: `agents/README.md` pipeline + follow-ups, `docs/mvp-notes.md` #9.
+
+Not done (follow-up): surfacing `ref` to `HandReview.jsx` to link a bullet to its tile/turn.
+
+## Verification
+
+- agents 21/21 (7 contract + 3 deterministic + 11 model-path), frontend 102/102 node + 13/13
+  component + build, backend 25/25 + build. `cdk synth` unaffected (no stack change).
+- Local smoke: `decisionFacts()` emits `d0`/`d1`/`d2`; deterministic `runReview` still returns the
+  correct `string[]`-bullet ReviewResult.
+- **Not yet run against live Bedrock** — the deployed Lambda still has the pre-grounding code and
+  old prompt. After merge + redeploy, confirm Nova Lite produces well-grounded `{ref,text}` at an
+  acceptable rate (an ungrounded reply is safe — it just falls back to the deterministic review).
+
+## Live test on the sandbox (per-item grounding)
+
+Deployed `feature/per-item-grounding` (Nova Lite + grounding) and tested via direct POST:
+
+- **Clean 3-decision hand** → `modelAssisted: true` (~2s). The 3 bullets were correctly grounded:
+  the "well played" bullet cited the optimal discard, the two "next time" bullets cited the
+  sub-optimal discard and the missed pong.
+- **Messy 8-decision hand with near-identical facts** (six lone-wind discards, two of the same
+  tile) → grounding **rejected** Nova Lite's reply → deterministic fallback. Working as intended:
+  a model that reuses/miscategorises a ref on a hard input is not trusted.
+
+Takeaway: grounding works; Nova Lite grounds fine on varied inputs but falls back more on hands
+with many repeated mistakes. Safe either way. A real player's decision log is more varied than
+the terrible-on-purpose auto-driver's, so real-world fallback rate should be lower.
+
+- [x] `frontend/src/game/review.js` — `REVIEW_TIMEOUT_MS` 6000 → 13000. A cold Lambda + Bedrock
+     call can exceed 6s, and the client abort was dropping to the offline summary even when the
+     model would have answered. The handler allows 15s; the review is post-hand so latency is
+     not on any critical path.
+
+---
+
+## Follow-up: ground `oneThingToTry` too (PR #19 review comment)
+
+`goodMoves` / `improvements` are per-item grounded; `oneThingToTry` was still a free
+model-authored sentence — the most prominent line, and the one most likely to smuggle in a
+rules claim the engine never made. Give it the same contract.
+
+- [x] `agents/src/schema.js` — `isModelReviewShape` accepts `oneThingToTry` as either a
+      `{ ref, text }` bullet or a plain short string (shape stays permissive; `runReview` does
+      the fact-aware enforcement). `normalizeReviewResult` resolves a `{ ref, text }` or string
+      focus to its text. Doc comments updated.
+- [x] `agents/src/review/reviewHand.js` — after the bullet grounding: if the hand has any
+      `[improve]` fact, `oneThingToTry` must be `{ ref, text }` whose `ref` names an `[improve]`
+      fact. Checked on its own, NOT against `usedRefs` — the takeaway naturally restates a fix
+      an improvements bullet already made. On a clean hand (no `[improve]` facts) the model's
+      `oneThingToTry` is ignored and the deterministic focus is substituted before normalize.
+- [x] `agents/src/review/prompt.js` — `oneThingToTry` rule + Shape line updated to the
+      `Item | string` contract, noting the id may repeat an improvements Item.
+- [x] `agents/test/reviewHand.test.js` — fixtures move to `{ ref, text }`; added: unknown ref →
+      fallback, `[good]` ref → fallback, bare string with mistakes → fallback, ref reused from
+      improvements → still accepted, clean hand → accepted with deterministic focus.
+- [x] Docs: `agents/README.md` pipeline steps 2–3 + limits bullet; `docs/mvp-notes.md` #9.
+- [x] Verified: `agents` 26/26, `frontend` 102/102 node + 13/13 component, `backend` 25/25 +
+      tsc build. `contract.test.js` (deterministic path) unchanged and green.
 
 ### Review
 
-Four small edits, all presentation-only, no engine or test-logic changes:
+Closed the last grounding gap from the PR #19 review: `oneThingToTry` — the most prominent
+line in the panel — was the only model-authored field with no fact check. It now carries the
+same `{ ref, text }` contract as the bullets when the hand has mistakes, and `runReview()`
+rejects the whole reply (→ deterministic fallback) unless that `ref` names a real `[improve]`
+fact. Its ref is deliberately exempt from the no-reuse rule the bullets follow, because a
+useful takeaway usually restates the top fix. Clean hands have no `[improve]` fact to cite, so
+the model's takeaway is dropped and `assembleReview`'s deterministic focus is used instead —
+the first place the pipeline mixes a deterministic field into a model-assisted result, a
+deliberate call to avoid trusting an ungrounded sentence there.
 
-1. **Wall is one row again.** The only functional CSS change is `.wall-edge`
-   switching from a 2-row grid to a flex row with `overflow: hidden`, plus a
-   `max-width` on the top/bottom edges as an overflow safety net. `Table.jsx`,
-   `tableLayout.js` and `tableLayout.test.js` were left as-is — the honest count
-   model is unaffected by how the row is laid out.
-2. **Green racks removed.** `Seat.jsx` reverted cleanly to `HEAD`; `Tile.jsx`
-   lost only the `TileBack` export (the `data-name` tooltip work is untouched);
-   the `.rack`/`.tile-back` rules were deleted and `.seat`'s gap returned to its
-   pre-rack 6px.
+Scope: schema shape check (permissive), one guard block in `reviewHand.js`, prompt wording,
+5 new tests, 3 doc edits. Public `ReviewResult` type and the frontend/offline path are
+untouched — `oneThingToTry` is still a `string` everywhere outside the model reply. No behaviour
+change on a clean hand or any non-model path.
 
-**Verification.** `npm test` 102/102, `npm run test:components` 13/13,
-`npm run build` clean. No reference to `rack`, `tile-back`, `TileBack` or
-`grid-template-rows` remains in `frontend/src`.
-
----
-
-## The felt rows show each seat's hand, not the wall
-
-The rows of small backs along each table edge were drawing the **undrawn wall**
-(`wallStacks(state.wall.length)`, split four ways), so the far edge showed 22
-backs while the player's hand held 14. The user read those rows as hands and
-asked for the counts to match — same formation, same positions, same tile size,
-only the number of backs changes.
-
-Nothing is lost by dropping the wall from the felt: `App.jsx` already prints
-`{state.wall.length} tiles left in the wall` in the top bar, and the coach
-reports it on request. It also restores something the code already claimed —
-`Puzzle.jsx`'s `toTableState` docstring describes opponents as "face-down racks"
-read from `hand.length`, and it already builds all four players with a `hand`,
-so the puzzle screen needed no change.
-
-- [x] **`tableLayout.js`** — `EDGES` + `wallStacks(remaining)` replaced by
-  `EDGE_SEATS` (`{ far: 2, right: 3, near: 0, left: 1 }`) and
-  `handRows(players)` returning `[{ edge, seat, tiles }]` with
-  `tiles = players[seat].hand.length`.
-- [x] **`Table.jsx`** — renders from `handRows(state.players)`. Its private
-  `DISCARD_SEATS` const was deleted in favour of the now-shared `EDGE_SEATS`,
-  which held the identical value.
-- [x] **`styles.css`** — `.wall*` → `.rack*` rename only; every declaration keeps
-  its exact value. `.wall-count` (the top-bar text, which really is the wall) is
-  deliberately untouched. Stale comments about "the wall lying flat" beside each
-  seat reworded.
-- [x] **`test/tableLayout.test.js`** — four `handRows` tests replacing the four
-  `wallStacks` ones.
-
-### Review
-
-**One mapping instead of two.** The edge→seat lookup already existed as
-`DISCARD_SEATS` inside `Table.jsx`; the fix needed exactly the same mapping, so
-it moved to `tableLayout.js` as `EDGE_SEATS` and now serves both the rows of
-backs and the discard piles. That is what keeps a seat's row and its discard
-pile from ever drifting onto different edges.
-
-**The rename was worth doing.** Leaving a selector called `.wall-tile` to render
-hands would have been a live trap, especially with a genuine `.wall-count` class
-ten lines away in the same file. It is mechanical — class names in `Table.jsx`
-and `styles.css` changed together, zero property values touched, so the layout
-is provably unmoved.
-
-**A row shrinks with its hand.** Because the count comes from `hand.length`, a
-player who exposes a pong drops from 13 backs to 10 — the concealed tiles are
-the ones drawn, and the exposed meld is already shown separately by `Seat.jsx`.
-The test for two pongs (13 → 7) is the one that pins this down.
-
-**Verification.** `npm test` 102/102, `npm run test:components` 13/13,
-`npm run build` clean. `wall-edge` / `wall-tile` / `wallStacks` / `DISCARD_SEATS`
-have zero hits left in `frontend/`, while `.wall-count` is still present in both
-`styles.css` and `App.jsx`. Checked against a real `newGame(DEFAULT_RULES)`
-rather than only synthetic hands: freshly dealt, far/left/right draw 13 and near
-draws 14, matching each `hand.length` exactly; after the human discards, near
-falls to 13; the top bar still reads "86 tiles left in the wall" throughout.
+Follow-up unchanged: surface `ref` (now including the focus's) to `HandReview.jsx`.
 
 ---
 
-## Move the opponent name plates off their tiles
+# Make the local help coach robust — Phase 1
 
-Each opponent's name plate (`Ah Ma` / `Ah Gong` / `Ah Huat`) sat on top of that player's
-exposed **meld** tiles — the pill covered the top of the meld row. Cause: the seat's 3D
-counter-rotation (`translateZ(30px) rotateX(-tilt)` about its bottom edge) projects the plate —
-the top of the `[plate, melds]` flex column — downward onto the melds under the scene's
-`perspective`, swallowing the `gap: 6px`. The far seat was worse: its melds and the far discard
-pile occupied nearly the same screen rectangle.
+Phase 1 of the approved two-phase plan (full plan:
+`~/.claude/plans/open-could-we-implement-floating-sonnet.md`). Phase 2 = a model coach agent
+layered on top; separate PR, needs a deploy.
 
-Presentation-only, `frontend/src/styles.css` alone. No JSX/engine/test changes (no test asserts
-plate geometry). Only affects the tilted "seated" view — the flat view has no counter-rotation.
+`VITE_CLASSIFY_INTENT_URL` is unset, so the coach never escalates to the model — it runs
+purely on `coach.js`'s regex patterns, which are narrow, so most natural phrasings hit
+`fallback()` ("I'm not sure about that one"). Add a keyword-score pass before giving up.
+Stays 100% offline; routes only to the existing rules-accurate handlers.
 
-- [x] **`.seat` `gap: 6px` → `calc(var(--tile-h) * 0.3)`** — a wide, tile-relative gap so the
-  plate clears the melds after the perspective projection.
-- [x] **`.seat-far` gets its own `gap: calc(var(--tile-h) * 0.16)`** and `bottom: 64% → 60%` —
-  the far edge has the wall-backs row just above it, so the plate can't lift as far; it uses a
-  smaller gap and clears its melds off the discards by moving the pile instead.
-- [x] **`.seat-left` / `.seat-right` `bottom: 44% → 40%`** — the wider gap lifts the side plates;
-  drop the anchors so they don't crowd the top rim or the far seat.
-- [x] **`.rack-edge-far` `top: 4% → 1%`** — nudge the far wall-backs row up so a short scene
-  (tall hand area) can't push the lifted far plate into it.
-- [x] **`.discard-pile-far` `top: 24% → 42%`** + a shorter `max-height` (3 rows vs 4) — moves
-  the far discards toward the centre, off the far player's melds, and keeps a long run from
-  reaching the middle of the table.
-- [x] **`@media (max-width: 900px)`** seat overrides shifted by the same deltas
-  (`.seat-far 68% → 60%`, `.seat-left/right 42% → 38%`).
+- [x] `coach.js` — added a `keywords` array to each `INTENTS` entry (narrow, Mahjong-specific).
+- [x] `coach.js` — `ask()`: after the ordered regex loop misses, `guessIntent()` scores each
+      intent by keyword hits (whole-word for single words, phrase-substring for multi-word).
+      Returns an intent only when **one** holds the top score outright; a tie → `null` → the
+      question falls through to `fallback()` (PR #25 review: don't let array order decide an
+      ambiguous match). Result tagged `matchedBy: 'keyword'`.
+- [x] `coach.js` — widened a few patterns: `advice.discard` ("what do I do now", "my move",
+      "what now"), `advice.value` ("how much is this hand"), `rules.limit` ("biggest hand");
+      tightened `rules.win`'s `/how.*win/` → `/how\b.*\bwin(ning)?\b/` (it was matching
+      "how do I close this **win**dow"). Dropped bare "close"/"near" from `advice.progress`
+      keywords — they caught "close the coach" — the patterns still cover "how close am I".
+- [x] No new intents, no backend change — `backend/shared/intents.json` + drift test untouched.
+- [x] `frontend/test/coach.test.js` — added "routes on its keywords" (dump/chuck→discard,
+      "worth anything"→value, "pile no one draws from"→wall, "quad"→kong, "house variant"→table,
+      "am I behind"→progress) and "does not drag an off-topic question" — now also covering
+      wrong-context ("can I close the coach?", "how do I close this window") and tied-keyword
+      ("should I dump my hidden tiles") → fallback.
+- [x] Verified: `frontend` 104/104 node (was 102) + 13/13 component. Both PR #25 review
+      comments addressed.
 
 ### Review
 
-**The gap is the fix; the anchors are damage control.** The one line that matters is the `.seat`
-gap — it's what stops the plate sitting on the melds. Everything else (`.seat-far` own gap, the
-lowered anchors, the nudged wall row) exists only to absorb the side effect of that gap lifting
-the plates, so nothing new gets pushed off an edge.
+`ask()` gained one fallback stage between the regex loop and `fallback()`: `guessIntent(text)`
+tokenizes the question and scores every intent by keyword hits, returning the first non-zero
+scorer (INTENTS order breaks ties, so `advice.*` still beats `rules.*` for a shared word like
+"pong"). Keyword lists are deliberately short and Mahjong-specific — no generic words like
+"take", "play", "round", "most" — so a stray token can't misroute a question; "what is the
+weather like" / "tell me a joke" still reach `fallback`. A keyword hit is tagged
+`matchedBy: 'keyword'` on the answer (the UI can surface "best guess" later; `askWithModel`
+already treats any non-`fallback` intent as resolved, so it won't spend a network call on a
+keyword match).
 
-**The far seat is genuinely cramped** — wall row, plate, melds and discards all foreshorten into
-a thin band. Its plate/meld gap ends up ~19px on screen vs ~30px on the sides, but it is clearly
-clear, and moving the far discard pile toward the centre is what actually frees the melds.
+Scope: `coach.js` only (`INTENTS` gains `keywords`, `ask()` gains ~15 lines + a `guessIntent`
+helper + a `build` helper extracted from the existing loop body) and two new tests. Answer
+handlers, `INTENTS` ids, `QUICK_QUESTIONS`, the backend, and every other test are untouched.
 
-**Known pre-existing (not touched):** the left/right plates still overlap the *decorative*
-diagonal wall-backs strips behind them — those are face-down count indicators, not melds or
-discards, and avoiding them would mean moving the wall strips or shrinking the plates, well
-beyond "move the names off the tiles."
-
-**Verification.** Driven in headless Chromium with melds forced onto all three seats, measuring
-`.seat-*` / `.discard-pile-*` bounding boxes: plate→meld gap 19–33px on every seat (was 3–9px);
-far melds now 21–32px clear of the far discard pile (was 39px overlap); far plate clear of the
-wall row in both a normal and a compressed-scene layout. Checked seated + flat + high-contrast +
-the 860px narrow layout. `npm test` 102/102, `npm run test:components` 13/13, `npm run build`
-clean.
+Phase 2 (model coach agent) is the separate follow-up in
+`~/.claude/plans/open-could-we-implement-floating-sonnet.md`.
 
 ---
 
-## Tiles as 3D blocks with a visible top surface
+# Model coach agent — Phase 2
 
-The user supplied a reference screenshot from a classic mahjong app. Its signature is that
-**every standing tile shows its top surface** — a lighter band above the face with a crisp seam —
-and that there is **no coloured frame around the face**; the body colour appears only as that top
-band (and as the whole tile when face-down). Our tiles did the opposite: an ivory card with a
-green lip extruded *downward*.
+A model-backed coach that reads the live position and answers the player's question in its own
+words, layered on top of the local coach (which stays the floor). Mirrors the review agent.
+Full plan: `~/.claude/plans/open-could-we-implement-floating-sonnet.md`.
 
-Confirmed with the user: **all three groups** (your hand, table discards + melds, the face-down
-wall rows) and **keep green on the tiles**. Green tops are the physically right answer for a
-green-backed set anyway — an ivory face inlaid in a green body shows the body's lit top edge.
+Escalation order: local regex → keyword score → classify-intent (existing) → **coach-answer
+model (new)** → `fallback()`.
 
-Presentation-only, `styles.css` alone. No JSX, no DOM, no 3D transforms.
+## agents/
+- [x] `agents/src/context/coachContext.js` — `coachContext(position)`: rebuild a `state`-shaped
+      object from the posted subset (`rebuildState`, not exported), run `advisor.js` primitives
+      (`contextFor`, `shanten`+`describeDistance`, `waits`, `bestDiscard`, `handSummary`,
+      `claimAdvice`) + `rulesContext(position.rules).line`. Return `{ facts: string[], phase,
+      yourTurn, wallCount }`.
+- [x] `agents/src/coach/prompt.js` — `SYSTEM_PROMPT` (answer from FACTS, don't invent rules,
+      JSON `{"answer": string[]}`) + `buildUserPrompt(ctx, question)`.
+- [x] `agents/src/coach/deterministic.js` — a minimal fixed "couldn't work that out" answer.
+      (NOT the full local `ask()` — the frontend already owns that floor and has already run it
+      by the time a question escalates here; re-deriving it server-side just reproduces the same
+      guided fallback. Simpler, and no `@kaki/game` barrel change.)
+- [x] `agents/src/coach/coachAnswer.js` — `runCoachAnswer({ position, question, useModel })`:
+      short-circuit `!useModel || !question` → deterministic; else `callModel` (maxTokens 300,
+      temp 0.3) → `parseJsonObject` → `isCoachAnswerShape` → `normalizeCoachAnswer`; any
+      throw/miss → deterministic.
+- [x] `agents/src/schema.js` — `MAX_COACH_LINE`, `MAX_COACH_LINES`, `CoachAnswerResult` typedef,
+      `isCoachAnswerShape`, `normalizeCoachAnswer`.
+- [x] `agents/src/index.js` + `agents/types/index.d.ts` — export `runCoachAnswer` + interfaces.
+- [x] `agents/test/coachAnswer.test.js` — mock Bedrock; short-circuit / happy / fence /
+      non-JSON / bad-shape / throw → all covered.
 
-- [x] **Tokens** — `--tile-top` (#55ab80, the lit upper surface) and `--tile-top-edge` (#1b5340,
-  the seam/outline) beside the existing `--tile-green`. The contrast theme inverts them to a white
-  top with a black seam.
-- [x] **`.tile`** — the downward green lip is gone. A local `--tile-depth` (14% of that tile's own
-  height) drives two upward `box-shadow` offsets: the top surface, and a 1.5px outline around it.
-  `border-top-color` becomes `--tile-top-edge` so the seam is a dark line, not the face's warm
-  edge. `--tile-depth` is re-declared on `.tile.small` (×0.62) and `.seat-meld .tile.small`
-  (×0.46) so the band stays ~14% of each rendering.
-- [x] **`.rack-tile`** — the wall rows are now the same block, green all over: green body, lit top
-  band, dark outline, small contact shadow.
-- [x] **Spacing the band would otherwise collide with** — `.hand-tiles` gained a row-gap and
-  `padding-top`, `.discard-pile`'s row-gap became `--tile-h`-relative, and the hover-name chip's
-  `margin-bottom` clears `--tile-depth`. The band is drawn outside the box, so it reserves no
-  layout space of its own.
+## backend/
+- [x] `backend/lambda/coachAnswer.ts` — clone `reviewHand.ts`; validate `question` (≤300),
+      clamp `position.hand`/`.discards`; `runCoachAnswer` → `{ answer }`; catch → 502.
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `CoachAnswerFn` cloned from `ReviewHandFn` (reuses
+      `agentModelId`), `bedrock:InvokeModel` policy, `POST /coach-answer` route, `CoachAnswerUrl`
+      output.
+- [x] `backend/test/coachAnswer.test.ts` — mirror `classifyIntent.test.ts`.
+- [x] `backend/README.md` — document `/coach-answer` + output.
+
+## frontend/
+- [x] `frontend/src/game/coach.js` — `COACH_ANSWER_URL`, `serializePosition(state)`,
+      `answerFromModel(question, state)`; extend `askWithModel` with the coach-answer tier
+      (re-read state after the await).
+- [x] `frontend/src/components/Coach.jsx` — badge `modelAssisted` answers.
+- [x] `frontend/.env.template` — `VITE_COACH_ANSWER_URL=`.
+- [x] `frontend/test/coach.test.js` — coach-answer tier: escalates only when everything else
+      misses; malformed/timeout → local fallback; state re-read after the round trip.
+
+## verify
+- [x] agents 36/36, frontend 108/108 node + 13/13 component, backend 31/31, `tsc --noEmit` clean,
+      `cdk synth` clean (`POST /coach-answer` route + `CoachAnswerFn` + Bedrock policy +
+      `CoachAnswerUrl` output all present).
 
 ### Review
 
-**Offset copies of the tile's own rounded rectangle.** Using `box-shadow` rather than a
-pseudo-element or a real 3D face means the band inherits the tile's `border-radius` — the top
-surface gets correctly rounded top corners for free — costs no DOM, and is transform-independent,
-so the flat view and `prefers-reduced-motion` need no special-casing.
+Added the framework's second agent, `runCoachAnswer` in `@kaki/agents`, and wired it in as the
+last coach tier. It follows the review agent's shape — deterministic context → one model call →
+strict validate → fallback — with two deliberate departures:
 
-**One depth number, three sizes.** `--tile-depth` is declared per rendering rather than hard-coded,
-so the band stays a constant fraction of whatever that tile actually is, and the whole set still
-scales from the single `--tile-scale` slider. Verified at slider max (`--tile-scale: 2`).
+1. **The model writes the answer.** `coachContext(position)` rebuilds a `state`-shaped object
+   from the browser's serialized subset and runs the same `advisor.js` primitives the local
+   coach uses (`contextFor`, `bestDiscard`, `handSummary`, `claimAdvice`, `shanten`/`waits`) plus
+   `rulesContext().line`, producing an English fact list. The model answers the question *from*
+   those facts — it reasons about the position, it isn't just rephrasing a graded verdict. It's
+   fenced: reply must be `{"answer": string[]}` of ≤3 short lines, any miss → deterministic, and
+   every answer is flagged `modelAssisted` so `Coach.jsx` badges it "AI".
+2. **The deterministic fallback is minimal** — a fixed "couldn't work that out" line, not a
+   re-run of the local `ask()`. By the time a question escalates this far, the frontend's `ask()`
+   has already returned its guided fallback (that's *why* it escalated), so re-deriving it
+   server-side just echoes the same text. The client keeps `ask()` as the true offline floor:
+   `answerFromModel` returns `null` on any failure and `askWithModel` returns the local result.
 
-**Contrast inverts the band, not just the colours.** A black top on a black felt renders as a
-hollow outline; a white top with a black seam reads as one solid block. Worth an explicit override
-rather than letting `--tile-green: #000` flow through.
+Escalation order is now: local regex → keyword score → classify-intent → **coach-answer** →
+`fallback()`. All four tiers past the first are optional and independently gated (`ask()` alone
+if nothing is configured). The new Lambda mirrors `reviewHand.ts` (validate `question` ≤300,
+clamp `position` arrays, reuse `agentModelId` / Nova Lite, same throttle + concurrency + budget +
+CORS + 5xx alarm — no new CDK knobs). Backend tests only cover the handler contract (400s + "200
+with a well-formed answer"); the agent's model path is tested in `agents/test/coachAnswer.test.js`
+because `@kaki/agents` resolves its own AWS SDK copy and can't be mocked from the backend package
+— the same reason `reviewHand.ts` has no backend unit test.
 
-**Two earlier ideas deliberately dropped** — the thick green frame around the face and the
-downward extruded base from the attempt reverted earlier on this branch. The reference has
-neither: the face runs edge to edge and all the depth is above it.
+Deploy + `VITE_COACH_ANSWER_URL` needed to make it live.
 
-**Verification.** Driven in headless Chromium at the human's turn with melds on the table: hand,
-discards, melds and wall rows all render as blocks with a green top surface. Checked seated, flat,
-high-contrast and `--tile-scale: 2`. `npm test` 102/102, `npm run test:components` 13/13,
-`npm run build` clean.
+### PR #26 review — grounding + all claim options (comments 1 & 2)
 
-**Known, unchanged:** the discard piles still converge toward the middle when they grow long —
-pre-existing; the row-gap here was kept tight (13% of a tile, just enough to clear the band) so
-this change does not make it worse.
+- [x] `coachContext()` — facts are now `{ id, text }[]` (`f0`, `f1`, …). Emits one fact per
+      entry in `state.claimOptions`, not just `[0]` — one discard can offer several chow shapes
+      with different advice (`melds.js` `getClaimsFor`), so "which chow?" needs them all.
+- [x] Model contract → `{ answer: [{ refs: string[], text: string }] }`. `isCoachAnswerShape`
+      requires each line carry ≥1 non-empty ref string. `normalizeCoachAnswer` drops refs → `lines`.
+- [x] `runCoachAnswer()` — after the shape check, every cited ref must resolve to a real
+      `coachContext()` fact id, or the whole reply → deterministic. This is the boundary shape
+      validation can't give (a `{answer: string[]}`-valid reply could invent a rule).
+- [x] `prompt.js` — FACTS rendered as `f<n>: <text>`; system prompt requires per-line citations,
+      no invented ids.
+- [x] `agents/types/index.d.ts` (`CoachFact`), `agents/test/coachAnswer.test.js` (+3: unknown
+      ref → drop, partial grounding → drop, one-fact-per-claim-option), docs.
+- [x] frontend/backend untouched — `normalizeCoachAnswer` still returns `{title, lines,
+      modelAssisted}`, so `answerFromModel`'s check and the handler contract are unchanged.
+- [x] agents 39/39, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+**Comment 3 → separate PR.** Make `coachContext()` emit structured typed facts
+(`{ id, type, ...data }[]`) rather than English strings as the canonical evidence, so citations
+can be validated against typed data, facts filtered by question, and the same evidence back a
+future LangGraph tool — English becomes a prompt-time rendering only. Noted in `docs/mvp-notes.md`
+#7 and `agents/README.md`.
+
+### Comment 3 — structured typed facts (PR after #26)
+
+- [x] `coachContext()` returns `{ id, type, ...data }[]` — types `rules` / `seat` / `wall` /
+      `distance` / `waits` / `discardPick` / `claimOption` / `handValue`, each holding the raw
+      values (tai/points/tile ids/shanten/rule keys/verdict). No `text` field on the fact.
+      (`discardPick` folds in what was a separate `alternatives` fact.)
+- [x] `renderFact(f)` (also in `coachContext.js`, exported) — the inverse: one typed fact → one
+      beginner sentence. `buildUserPrompt` calls it; prompt output is byte-identical to before.
+- [x] `agents/src/index.js` exports `renderFact`; `agents/types/index.d.ts` `CoachFact` is now a
+      discriminated union + `renderFact` decl.
+- [x] Tests: assert fact `id`/`type`/fields directly (no string matching); every emitted type
+      must `renderFact` to a non-empty string; prompt has no `undefined` / `[object Object]`.
+- [x] frontend/backend untouched.
+
+### Comment 3, part 2 — question filtering + field-level grounding (same PR #29)
+
+- [x] `relevantFacts(facts, question)` (in `coachContext.js`, exported) — core facts (rules /
+      seat / wall / distance / waits) always kept; situational facts (discardPick / claimOption /
+      handValue) narrowed by question keywords, with a floor: if none clearly match, keep all
+      (this agent runs on unplaceable questions — dropping a needed fact is the worse failure).
+      Ids are never renumbered. `buildUserPrompt` now takes the narrowed array.
+- [x] `runCoachAnswer` uses the narrowed set for BOTH the prompt and the ref-existence check, so
+      a line citing a filtered-out fact is dropped. Added a second grounding check:
+      `namesUnsupportedPattern` — a line naming `half/full flush` / `all pungs` / `all chows`
+      when that rule key isn't active (from the `rules` fact's new `keys` field) drops the reply.
+      Single-word patterns ("dragon", "flower") left out — they collide with tile names.
+- [x] `rules` fact gains `keys: string[]`; `agents/src/index.js` + `.d.ts` export `relevantFacts`.
+- [x] Tests (+5): relevantFacts narrows/keeps-all/keeps-ids; cite-a-filtered-fact → drop;
+      unsupported-pattern → drop; supported-pattern → fine; rules fact carries keys.
+- [x] agents 45/45, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+### Comment 3, part 3 — pinned-number grounding (same PR #29)
+
+- [x] `misstatesNumber(text, citedFacts)` in `coachAnswer.js` — three slots (`tai` / `points`
+      vs the cited `handValue` fact, tiles-left vs the cited `wall` fact) with stereotyped
+      phrasings. Drops the reply when a line states one clear number for a slot that the fact it
+      cites contradicts. Each candidate number is skipped only if *its own clause* (`clauseAround`,
+      split on `,;.`) hedges it or ties it to the table limit — PR #30 review: a hedge elsewhere
+      in the sentence must not excuse a separate definite claim. >1 surviving number → ambiguous,
+      skip.
+- [x] Tests (+5): wrong tai → drop, wrong wall count → drop, right number → fine, hedged /
+      limit-context number → fine, number with no matching cited fact → fine.
+- [x] agents 50/50, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+Grounding now covers: ref existence, unsupported scoring patterns, and contradicted pinned
+numbers. A line that *reasons about* the facts (not stating a rule / copying a number) is still
+taken on trust — closing that would need a judge pass or far richer facts, not warranted for a
+safely-degrading last-resort answer (`docs/mvp-notes.md` #7).
 
 ---
 
-## Revert the green tile colour; keep only a side strip on the left/right seats
+# Follow-up: offline model comparison harness for the coach agent
 
-The green top-surface band from the section above was reverted at the user's request. A tile
-facing you should just show its white face; only tiles at the **left and right seats** — seen at
-an angle from your chair — show a strip of the green body on their outer side, "the way a normal
-tile would look."
+The coach agent's model is one env var (`AGENT_MODEL_ID`, default `us.amazon.nova-lite-v1:0`,
+`agents/src/model.js:18`). The README says that default was picked after an ad-hoc comparison
+run that was never committed. Before deciding whether to move to Nova 2 Lite (or Nova Pro),
+build a repeatable harness that runs the current baseline, Nova Pro, and Nova 2 Lite through
+the **real** `runCoachAnswer()` grounding pipeline on a fixed question set and reports pass
+rates, failure reasons, latency, and token use. Decision-support only — no model switch here.
 
-Confirmed: near pile + far pile + your hand + far seat's melds → plain white; left seat → green
-strip on the LEFT edge; right seat → green strip on the RIGHT edge; the face-down wall rows →
-back to the tan strip they were before the band change.
+**Scope decision: no change to `agents/src/`.** One child process per model, with
+`AGENT_MODEL_ID` set in its env before `model.js` loads, sidesteps the module-load-time
+`MODEL_ID` const. The harness lives entirely in a new `agents/bench/`.
 
-`frontend/src/styles.css` only. No JSX/DOM/test changes.
+**Scope decision: opt-in, never in `npm test`.** The harness hits real Bedrock (~45 calls,
+cents). `npm test` stays fully offline and free.
 
-- [x] **Removed** `--tile-top` / `--tile-top-edge` (both themes), `--tile-depth` and every use of
-  it, `.tile`'s three-layer top-band `box-shadow` and `border-top-color` (→ `box-shadow:
-  var(--tile-lift)` and a uniform border), the `.hand-tiles` extra row-gap + `padding-top`, and
-  `.discard-pile`'s inflated row-gap (→ `12px 3px`). `.rack-tile` restored to
-  `linear-gradient(#f2ead6, #cdbf9e)` / `1px solid #8d7c58`, contrast back to `#fff` / `#000`.
-- [x] **`.tile.just-drawn`** now only adds the highlight ring (`box-shadow: 0 0 0 3px
-  var(--highlight), var(--tile-lift)`), no `border-color` — so a highlighted discard in a side
-  pile keeps its green edge strip.
-- [x] **Side strip (new):** `.seat-left .tile, .discard-pile-left .tile { border-left: var(--strip)
-  solid var(--tile-green) }` and the mirror for the right. `--strip` is `calc(var(--tile-w) *
-  <scale> * 0.2)` — set on `.tile.small` (0.62) and `.seat-meld .tile.small` (0.46) where the
-  tile's width is known, `0px` fallback on `.tile`.
+## Todo
 
-### Review
+- [x] 1. `agents/bench/cases.mjs` — 15 `{ name, position, question, note }` fixtures. Two
+     positions lifted from `agents/test/coachAnswer.test.js` (the ready hand; the b5 claim
+     window), covering the six `QUICK_QUESTIONS`, four natural phrasings, and five adversarial
+     cases (riichi / wrong-tai-number / full-flush / opponent-hand / invented-rule).
+- [x] 2. `agents/bench/coachModels.mjs` — single-model child. Reads `AGENT_MODEL_ID`. Wraps
+     `BedrockRuntimeClient.prototype.send` as a pass-through spy recording raw reply, token
+     usage, `stopReason`, latency, and content-block shape; runs the real
+     `runCoachAnswer({ position, question })`; derives `jsonParsed` (`parseJsonObject`),
+     `shapeOk` (`isCoachAnswerShape`), `modelAssisted`, `groundingRejected`
+     (`shapeOk && !modelAssisted`). One JSON line per case to stdout; full raw replies to
+     `agents/bench/out/<modelId>.json`.
+- [x] 3. `agents/bench/run.mjs` — parent. Candidates `us.amazon.nova-lite-v1:0` (baseline),
+     `us.amazon.nova-pro-v1:0`, `us.amazon.nova-2-lite-v1:0` (override with `MODELS="a,b,c"`;
+     verify ids + region in the Bedrock console first). Spawns the child per model with
+     `AGENT_MODEL_ID` set, prints the markdown table: model | n | JSON-valid % |
+     modelAssisted % | grounding-rej | non-JSON | bedrock-err | truncated | avg ms | avg out-tok.
+- [x] 4. `agents/package.json` — added `"bench:coach": "node bench/run.mjs"`; `test` untouched.
+- [x] 5. Root `.gitignore` — added `agents/bench/out/`.
+- [x] 6. Verified — see below. Real multi-model run still needs AWS creds (not run here).
 
-**The strip is a border, not a shadow.** `box-sizing: border-box` is global, so `border-left`
-narrows the tile's own content box — the SVG face just renders ~20% narrower — with no overlap
-against the neighbouring tile in a row and no gap juggling. A shadow-based outside strip would
-have needed per-pile column-gap rules and still clipped at row edges.
+## Review
 
-**`--strip` lives with the size, not the strip rule.** The two side rules are size-agnostic;
-`--strip` is declared once per rendering (`.tile.small`, `.seat-meld .tile.small`), so it stays
-~20% of whatever that tile actually is and still scales from the one `--tile-scale` slider. The
-`0px` fallback on `.tile` keeps the rule valid on every non-side tile.
+### What was added
 
-**Verification.** Driven in headless Chromium at the human's turn with melds on all three seats
-and discards in every pile: near/far/hand/far-melds are plain white; left melds+pile carry a
-green left strip, right a green right strip; the latest discard still gets its ring; wall rows are
-tan. Checked seated, flat and high-contrast (strip renders as a black edge there — legible).
-`npm test` 102/102, `npm run test:components` 13/13, `npm run build` clean.
+A self-contained `agents/bench/` harness, run with `npm run bench:coach`, that puts the coach
+agent's fixed question set through the **real** `runCoachAnswer()` pipeline against each
+candidate model and prints a comparison table. No change to `agents/src/` — one child process
+per model, `AGENT_MODEL_ID` set in its env before `model.js` loads, sidesteps the
+module-load-time `MODEL_ID` const. Nothing runs in `npm test`; the harness is opt-in and hits
+real Bedrock.
 
-**Follow-up — strip removed too.** The user then asked for the side strip gone as well, so the
-left/right tiles match the rest. Deleted the two `border-left`/`border-right` rules, the `--strip`
-custom property (all three declarations), and the now-unused `--tile-green` token (both themes) —
-`grep "tile-green\|--strip"` is clean. Every tile on the felt and in the hand is now a plain white
-card; nothing tints a tile green anywhere. `102/102`, `13/13`, build clean; re-checked seated,
-flat and high-contrast.
+- **`bench/cases.mjs`** — 15 fixtures over two positions from the unit-test file. The
+  adversarial five each target one guardrail: an honest "facts don't cover this" (riichi), a
+  pinned-number contradiction (8 tai when the real value is 0), an unsupported scoring pattern
+  (full flush on a half-flush table), an unknowable (opponent's hand), and an invented rule.
+- **`bench/coachModels.mjs`** — the child. A pass-through spy on `send` records the raw reply,
+  `usage`, `stopReason` (so Nova 2 Lite reasoning output truncating under `maxTokens: 300`
+  shows up as `truncated`), latency, and which content blocks came back (diagnostic for a
+  reasoning model putting `reasoningContent` before `text`). The production verdict comes from
+  the real `runCoachAnswer()`, not a re-implementation.
+- **`bench/run.mjs`** — the orchestrator and table. `grounding-rej` = shape-valid but the
+  pipeline still dropped it (bad ref / unsupported pattern / misstated number); the per-model
+  `out/*.json` dump is where a human confirms each rejection was real, not a false positive.
+
+### Verification
+
+- `cd agents && npm test` — 50/50 pass, offline, no AWS calls. Unchanged by this work.
+- `cd agents && AWS_ACCESS_KEY_ID=… BEDROCK_REGION=us-east-1 MODELS="us.amazon.nova-lite-v1:0"
+  node bench/run.mjs` with throwaway credentials — harness wires up end to end: 15 cases run,
+  each Bedrock failure is caught and recorded per-case (`bedrockError:
+  "UnrecognizedClientException"`), the deterministic fallback is exercised, the table prints
+  cleanly, and `bench/out/<model>.json` is written with the per-case structure.
+- `git check-ignore agents/bench/out/…json` — confirmed the dump directory is git-ignored.
+- A real three-model run needs valid AWS credentials and all three inference profiles enabled
+  in the region — not available in this environment, so left for the user to run.
+
+### Note — unrelated in-flight change in the working tree
+
+`agents/src/coach/coachAnswer.js` and `agents/test/coachAnswer.test.js` carry uncommitted
+edits that are **not** part of this work (a clause-scoped rewrite of `misstatesNumber`'s hedge
+/ limit-context handling). They were already in the tree; this harness does not touch that
+file and the full suite passes with them in place.
+
+---
+
+# Act on the first bench run: expand cases + close two guardrail gaps
+
+The first `bench:coach` run (nova-lite / nova-pro / nova-2-lite, n=15) showed nova-pro's JSON
+compliance collapsing (40%), and nova-lite vs nova-2-lite a wash on safety — each let exactly
+one hallucination past the guardrails (nova-lite invented an opponent's hand; nova-2-lite
+entertained riichi). It also surfaced two guardrail bugs. This change acts on both, and grows
+the fixture set so a re-run is more discriminating. **No model switch** — decision support only.
+
+- [x] `agents/bench/cases.mjs` — 15 → 40 fixtures. Six positions now (added a far-from-ready
+      hand, a not-your-turn hand, a pong window, an endgame near-empty wall). 16 adversarial /
+      out-of-scope cases (foreign rules: riichi / dora / furiten / yaku; unknowables: opponent
+      hand / next draw / dead wall / opp discard / game score; invented rules; a bad-faith
+      "peek at their tiles"), plus more rule and vague-phrasing cases across the positions.
+- [x] `agents/src/coach/coachAnswer.js` — gap 1: `namesUnsupportedPattern` was line-wide, so it
+      *rejected a correct refusal* ("no, don't chase a full flush"). Now clause-scoped via
+      `clauseAround` and skips a clause that `isDismissed` (no / not / avoid / "isn't a rule" …).
+- [x] `agents/src/coach/coachAnswer.js` — gap 2: nothing caught the "reasons past the facts"
+      hallucination. Added `inventsForeignRule` (riichi / dora / furiten / ippatsu / … deny-list)
+      and `claimsOpponentHand` (a positive claim about another seat's concealed tiles). Both
+      clause-scoped and dismissal-aware, so an honest "that isn't a thing here" / "you can't
+      know what they hold" is still kept.
+- [x] `agents/test/coachAnswer.test.js` — +5: dismissed-pattern kept; foreign rule asserted →
+      drop; foreign rule dismissed → kept; opponent-hand claim → drop; opponent-hand "unknowable"
+      → kept.
+- [x] Docs: `agents/README.md`, `docs/mvp-notes.md` #7 — guardrail list now names all four
+      checks and the clause-scoping / dismissal rule.
+- [x] agents 56/56, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean. A real
+      multi-model re-run against the 40 cases still needs AWS creds — not run here.
+
+### PR #31 review — `modelAssisted` is not a quality metric (joshu4-j-j0hn)
+
+Renamed the bench's `modelAssisted` → `pipelineAccepted` (`coachModels.mjs`) / `accept` in the
+table (`run.mjs`); it only ever meant "the production pipeline let the reply through", and a
+hallucination the guardrails miss inflates it.
+
+- [x] `cases.mjs` — each case now has `expect: 'answer' | 'decline'` (27 / 13).
+- [x] `run.mjs` — reports **`accept (answer-cases)`** and **`leaked (decline-cases)`** separately.
+      `leaked` = accepted a reply on a case the facts cannot support = a guardrail miss (goal: 0).
+      Footer spells out that `accept` is not quality and that recklessness inflates it.
+- [x] `coachModels.mjs` — each dumped case carries `expect` + a `humanVerdict: null` slot to fill
+      in by hand (`correct` / `grounded-refusal` / `unsupported` / `wrong` / `leak`) when using a
+      run for model selection — that, not `accept`, is the comparison.
+- [x] Docs: `agents/README.md`.
+
+---
+
+# Add 2 more discard puzzles per difficulty (3 -> 5 per tier)
+
+Found by the same random-hand search the library was built with (`tryDiscardPuzzle` over dealt
+14-tile hands, bucketed by `tieCount`), then hand-picked for spread.
+
+- [x] `frontend/src/game/puzzleLibrary.js` — `easy-4/5`, `medium-4/5`, `hard-4/5`. Each verified
+      WITH its curated `discards` (which feed `puzzleContext` visibleTiles, so they can shift the
+      derived tier) to land in its filed tier. Diversity: best tile is terminal / near-edge /
+      middle / lone-honour across the set; `shantenBefore` spans 1–4; two of them (`medium-4`,
+      `easy-5`) have a tempting lone wind that is deliberately NOT the answer; `hard-4` is a
+      one-away position (none of `hard-1..3` were near tenpai). Header comment updated.
+- [x] `frontend/test/puzzleLibrary.test.js` — "exactly 3" → "exactly 5". (The tier-correctness
+      test already loops every entry, so all 30 are validated at import + in the suite.)
+- [x] `frontend/test/Puzzle.test.jsx` — count assertion now derives from `PUZZLE_LIBRARY[tier].length`
+      instead of a hardcoded 3.
+- [x] `docs/mvp-notes.md` #10 — "8 of the 9" → "8 of the (then 9, now 15)".
+- [x] frontend 108/108 node + 13/13 component. `Puzzle.jsx` renders `Puzzle {i+1}` per entry — no
+      code change needed.
+# Default the review + coach agents to Nova 2 Lite
+
+The `bench:coach` comparison (nova-lite / nova-pro / nova-2-lite) settled it: nova-pro's JSON
+compliance collapses; nova-2-lite matches nova-lite's JSON reliability with tighter answers,
+slightly fewer tokens, and better use of the per-claim-option facts. User's call: switch.
+
+- [x] `agents/src/model.js` — `MODEL_ID` fallback `us.amazon.nova-lite-v1:0` → `us.amazon.nova-2-lite-v1:0`.
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `agentModelId` default likewise. `assertModelRegionMatch`
+      passes (`us.` prefix, us-east-1). Drives BOTH the review Lambda and coach-answer Lambda.
+- [x] Docs: `agents/README.md` (env table + coach section), `backend/README.md` (×3).
+      `bench/run.mjs` candidate list reordered (nova-2-lite first, nova-lite kept as baseline).
+- [x] agents 56/56, backend 31/31, `tsc` + `cdk synth` clean (template carries the new id in the
+      Lambda env + the `bedrock:InvokeModel` ARNs).
+
+Note: this also moves the **review** agent to nova-2-lite, which the bench did not exercise. Safe
+by construction — the review agent's per-item grade-matched grounding means a weaker model only
+triggers more deterministic fallback, never a wrong-but-accepted review. Point `bench/` at the
+review agent later if a check is wanted.
+
+**Deploy is still yours:** `cd backend && npx cdk deploy` picks up the new default. Nothing is
+live until then.
