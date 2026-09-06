@@ -101,7 +101,7 @@ export default function Puzzle() {
         <button type="button" onClick={backToPicker}>Choose another puzzle</button>
       </div>
 
-      <div className="table view-seated">
+      <div className="table view-flat">
         <Table state={toTableState(puzzle)} />
       </div>
 

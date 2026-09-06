@@ -59,9 +59,9 @@ Two more things protect legibility:
   discards is much better than clipping the newest.
 
 Seated and flat are one layout with one different value — `--tilt` — rather than two layouts to keep
-in sync. `Settings` offers **Seated** (default) or **Flat**, and the tilt also flattens automatically
-under `prefers-reduced-motion` and shallows on small screens, where the page scrolls rather than
-cropping the table.
+in sync. `Settings` offers **Flat — looking straight down** (default) or **Seated — as if you are at
+the table**, and the tilt also flattens automatically under `prefers-reduced-motion` and shallows on
+small screens, where the page scrolls rather than cropping the table.
 
 `src/components/Table.jsx` builds the scene; `src/game/tableLayout.js` works out the wall ring.
 
@@ -150,8 +150,9 @@ is no timer anywhere — Section 4 is explicit that time pressure is the thing t
 
 Section 5 says *"136-tile set: three suits … Wind tiles … Dragon tiles …, and 8 bonus tiles"*.
 Those numbers do not add up: 108 suited + 16 wind + 12 dragon is **already 136**, so adding 8 bonus
-tiles gives **144**. This build uses 144, with the 4 animal tiles (for the 148-tile set some
-Singapore tables use) available as a house rule. Worth fixing in the proposal text.
+tiles gives **144**. This build ships the 148-tile set — the 144 tiles plus the 4 animal tiles that
+many Singapore tables use — **on by default**, switchable off from the house-rules screen. Worth
+fixing in the proposal text.
 
 ## Scoring defaults
 
