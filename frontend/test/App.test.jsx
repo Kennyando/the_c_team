@@ -3,8 +3,8 @@
 // so this is where that behavior actually gets tested.
 // Run with `npm run test:components` from frontend/.
 
-import { test, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { test, expect, vi } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import App from '../src/App.jsx';
 
@@ -40,15 +40,33 @@ test('Puzzle and Rules are both reachable from Home and return to it', () => {
   expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
 });
 
-test('the narration pill can be dismissed', () => {
-  const { container } = render(<App />);
+test('the narration pill shows the latest line, then hides itself after a second', () => {
+  vi.useFakeTimers();
+  try {
+    const { container } = render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+
+    const log = container.querySelector('.log');
+    expect(log.textContent).toMatch(/New hand dealt/);
+    expect(log.hidden).toBe(false);
+
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(container.querySelector('.log').hidden).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('the Discards panel lists every player\'s thrown tiles', () => {
+  render(<App />);
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
 
-  const log = container.querySelector('.log');
-  expect(log).toBeTruthy();
-  expect(log.textContent).toMatch(/New hand dealt/);
-  expect(log.hidden).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Discards' }));
+  const panel = screen.getByRole('dialog', { name: 'All discarded tiles' });
+  // One row per seat, none of them with any discards on a freshly dealt hand.
+  expect(panel.querySelectorAll('.discard-log-row').length).toBe(4);
+  expect(panel.querySelectorAll('.discard-log-tiles .hint').length).toBe(4);
 
-  fireEvent.click(container.querySelector('.log-x'));
-  expect(container.querySelector('.log').hidden).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(screen.queryByRole('dialog', { name: 'All discarded tiles' })).toBeNull();
 });

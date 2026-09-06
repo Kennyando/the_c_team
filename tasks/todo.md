@@ -2769,3 +2769,41 @@ block. (commit 1)
   fix would move the rack into the `Seat` flex column.
 - `fitScale` caps at 1.2 (the old fixed default) so desktop is unchanged; it only ever shrinks,
   for short/small windows.
+
+---
+
+## Round 2 — feedback on the annotated screenshot (same branch / PR #36)
+
+- [x] **R2-1. "Show all discards" button + panel.** New topbar `Discards` button opens
+      `DiscardLog.jsx` — a `.backdrop`/`.dialog` with one row per player (turn order, you first):
+      `name · count` then every tile that player threw, flat and full-size, in order. `showDiscards`
+      state in `App.jsx`, reset in `newHand()`. CSS: `.discard-log-row/-name/-count/-tiles`.
+- [x] **R2-2. Discards in front of their owner.** `.discard-pile-*` repositioned into four
+      strips — far under Ah Gong, near just above your hand, left/right down each side by their
+      seat — each just clear of that seat's plate and melds, with the table centre left open.
+- [x] **R2-3. Narration pill auto-hides after 1s.** `App.jsx` — each new `state.log` line shows
+      the pill and arms a 1000ms `setTimeout` to hide it (cleared on the next line). Manual ×
+      removed (`.log-x` / `.log-text` gone). `App.test.jsx` updated to fake timers.
+- [x] **R2-4. Side racks out to the edge + aligned.** `.rack-edge-left/right` moved from
+      `left/right: 19%` to `4%`, vertically centred (`top: 42%; translateY(-50%)`,
+      `justify-content: center`), tiles bumped to `0.5 × 0.11`. Whole column visible, clear of
+      the plate.
+- [x] Verify: 111 node + 24 component green, `npm run build` clean. Browser pass at 1400×860 and
+      in high-contrast: Discards panel, per-seat piles clear of plates/melds, pill gone ~1s after
+      each move, racks fully visible at the edges.
+
+### Round 2 review
+
+Follow-up on the annotated screenshot, same branch / PR #36.
+
+- **Discards panel** (`DiscardLog.jsx`, new) — the felt view is foreshortened and split four ways;
+  this is the flat, full-size, in-order read. Topbar button between *New hand* and *Settings*.
+- **Per-seat discard strips** — the four `.discard-pile-*` blocks now sit in their owner's part of
+  the felt instead of one heap at the centre. The seated 3-D view is cramped on the sides, so the
+  strips are tuned to just clear each plate/meld rather than sit dead in front — the panel is the
+  precise reference.
+- **1-second narration pill** — shows the latest line, then removes itself, so it isn't parked over
+  the far seat while you think. Replaces the manual dismiss ×.
+- **Edge racks** — the side columns are at the table edge now and fully visible, vertically centred
+  on the seat.
+- Tests: `App.test.jsx` gained the Discards-panel test and switched the pill test to fake timers.

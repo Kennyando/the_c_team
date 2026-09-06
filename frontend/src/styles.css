@@ -187,21 +187,22 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 .rack-edge-far { top: 1%; left: 50%; max-width: 92%; transform: translateX(-50%); }
 .rack-edge-near { bottom: 4%; left: 50%; max-width: 92%; transform: translateX(-50%); }
-/* The two side players' concealed tiles as a vertical column of side-on backs, sitting directly
-   above that seat's exposed melds (see .seat-left / .seat-right). Each back is laid landscape so
-   the column reads as a stack of tiles seen edge-on, the way the side seats look on a real table. */
+/* The two side players' concealed tiles as a vertical column of side-on backs, run down the
+   table edge beside that seat so the whole column is visible. Each back is laid landscape so the
+   column reads as a stack of tiles seen edge-on, the way the side seats look on a real table. */
 .rack-edge-left, .rack-edge-right {
-  bottom: 62%;
+  top: 42%;
   flex-direction: column;
   flex-wrap: nowrap;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 1px;
+  transform: translateY(-50%);
 }
-.rack-edge-left { left: 19%; }
-.rack-edge-right { right: 19%; }
+.rack-edge-left { left: 4%; }
+.rack-edge-right { right: 4%; }
 .rack-edge-left .rack-tile, .rack-edge-right .rack-tile {
-  width: calc(var(--tile-w) * 0.52);
-  height: calc(var(--tile-h) * 0.09);
+  width: calc(var(--tile-w) * 0.5);
+  height: calc(var(--tile-h) * 0.11);
 }
 .rack-tile {
   width: calc(var(--tile-w) * 0.34);
@@ -299,28 +300,32 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   width: calc(var(--tile-w) * 0.4);
   height: calc(var(--tile-h) * 0.4);
 }
+/* Each pile sits in its own player's quarter of the felt — a strip under the far seat, one just
+   above your own hand, and one down each side by the side seats — with a clear gap left in the
+   centre, the way discards actually lie on a table. The side strips sit low enough to clear that
+   seat's name plate and melds. */
 .discard-pile-far {
-  top: 41%;
+  top: 38%;
   left: 50%;
-  width: min(210px, 28%);
+  width: min(230px, 32%);
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-near {
-  bottom: 15%;
+  bottom: 8%;
   left: 50%;
-  width: min(210px, 28%);
+  width: min(230px, 32%);
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-left {
-  left: 37%;
-  top: 50%;
-  width: min(130px, 15%);
+  left: 23%;
+  top: 74%;
+  width: min(120px, 13%);
   transform: translateY(-50%) translateZ(12px);
 }
 .discard-pile-right {
-  right: 37%;
-  top: 50%;
-  width: min(130px, 15%);
+  right: 23%;
+  top: 74%;
+  width: min(120px, 13%);
   transform: translateY(-50%) translateZ(12px);
 }
 
@@ -536,6 +541,23 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   outline-offset: 2px;
 }
 
+/* The "Discards" panel: one row per player, their thrown tiles flat and in order. */
+.discard-log-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 2px solid var(--panel-edge);
+}
+.discard-log-name {
+  flex: 0 0 auto;
+  width: 6.5em;
+  font-weight: 800;
+  padding-top: 4px;
+}
+.discard-log-count { font-weight: 400; color: var(--muted); }
+.discard-log-tiles { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
 /* ---------- home, puzzle library and rules screens ---------- */
 
 /* No topbar above these three (Home is the one screen without the app chrome; Puzzle/Rules render
@@ -675,7 +697,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   left: 12px;
   z-index: 5;
   max-width: min(52%, 380px);
-  padding: 8px 8px 8px 18px;
+  padding: 8px 18px;
   border-radius: 999px;
   background: var(--ink);
   color: #eef4f0;
@@ -683,27 +705,12 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   min-height: var(--tap);
   display: flex;
   align-items: center;
-  gap: 8px;
   text-align: left;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
+/* It hides itself a second after each move (App.jsx) so it isn't clutter while you think. */
 .log[hidden] { display: none; }
-.log-text { flex: 1; }
-.log-x {
-  flex: none;
-  width: calc(var(--tap) * 0.7);
-  height: calc(var(--tap) * 0.7);
-  border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  color: inherit;
-  font-size: 1.2em;
-  line-height: 1;
-  cursor: pointer;
-}
-.log-x:hover { background: rgba(255, 255, 255, 0.3); }
 [data-theme='contrast'] .log { background: #000; color: #fff; border: 3px solid #fff; }
-[data-theme='contrast'] .log-x { background: #fff; color: #000; }
 
 .visually-hidden {
   position: absolute;

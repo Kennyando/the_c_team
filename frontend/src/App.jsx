@@ -14,6 +14,7 @@ import CallBar from './components/CallBar.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import ScoreSheet from './components/ScoreSheet.jsx';
 import Settings from './components/Settings.jsx';
+import DiscardLog from './components/DiscardLog.jsx';
 import Coach from './components/Coach.jsx';
 import HandReview from './components/HandReview.jsx';
 import GameReview from './components/GameReview.jsx';
@@ -80,10 +81,18 @@ export default function App() {
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showReview, setShowReview] = useState(false);
-  // The narration pill can be dismissed; it comes back on the next new line.
+  const [showDiscards, setShowDiscards] = useState(false);
+  // The narration pill shows the latest line, then fades itself out after a second so it never
+  // sits on the board as clutter while you think.
   const [logShown, setLogShown] = useState(true);
   const lastLog = state.log.at(-1);
-  useEffect(() => { setLogShown(true); }, [lastLog]);
+  const logLen = state.log.length;
+  useEffect(() => {
+    if (!logLen) return undefined;
+    setLogShown(true);
+    const t = setTimeout(() => setLogShown(false), 1000);
+    return () => clearTimeout(t);
+  }, [logLen]);
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -163,6 +172,7 @@ export default function App() {
     setConfirm(null);
     setShowSettings(false);
     setShowReview(false);
+    setShowDiscards(false);
     setState((s) => newGame(rules, (s.dealer + 1) % 4, s.players.map((p) => p.points)));
   };
 
@@ -184,6 +194,9 @@ export default function App() {
           )}
           <span className="spacer" />
           {screen === 'play' && <button type="button" onClick={newHand}>New hand</button>}
+          {screen === 'play' && (
+            <button type="button" onClick={() => setShowDiscards(true)}>Discards</button>
+          )}
           {screen === 'play' && (
             <button type="button" className="primary" onClick={() => setShowSettings(true)}>
               Settings
@@ -209,15 +222,7 @@ export default function App() {
         <>
           <main className={`table view-${display.tableView}`}>
             <div className="log" aria-live="polite" hidden={!logShown || !lastLog}>
-              <span className="log-text">{lastLog}</span>
-              <button
-                type="button"
-                className="log-x"
-                aria-label="Dismiss message"
-                onClick={() => setLogShown(false)}
-              >
-                ×
-              </button>
+              {lastLog}
             </div>
 
             <Table state={state} />
@@ -267,6 +272,14 @@ export default function App() {
               setRules={setRules}
               onClose={() => setShowSettings(false)}
               onNewHand={newHand}
+            />
+          )}
+
+          {showDiscards && (
+            <DiscardLog
+              discards={state.discards}
+              players={state.players}
+              onClose={() => setShowDiscards(false)}
             />
           )}
 
