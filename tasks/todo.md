@@ -2462,5 +2462,19 @@ future LangGraph tool — English becomes a prompt-time rendering only. Noted in
       unsupported-pattern → drop; supported-pattern → fine; rules fact carries keys.
 - [x] agents 45/45, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
 
-Still open (mvp-notes #7): field-level *number* checks — a line can cite a real fact and still
-misstate its tai/points/tile count. Mechanical now that facts are typed; not done here.
+### Comment 3, part 3 — pinned-number grounding (same PR #29)
+
+- [x] `misstatesNumber(text, citedFacts)` in `coachAnswer.js` — three slots (`tai` / `points`
+      vs the cited `handValue` fact, tiles-left vs the cited `wall` fact) with stereotyped
+      phrasings. Drops the reply when a line states one clear number for a slot that the fact it
+      cites contradicts. Bails on any hedge word (`about`, `might`, `between`, …), any
+      limit/cap context (a line about the table limit legitimately carries a non-hand tai
+      number), and >1 candidate number for a slot — false positives are worse than a miss here.
+- [x] Tests (+5): wrong tai → drop, wrong wall count → drop, right number → fine, hedged /
+      limit-context number → fine, number with no matching cited fact → fine.
+- [x] agents 50/50, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+Grounding now covers: ref existence, unsupported scoring patterns, and contradicted pinned
+numbers. A line that *reasons about* the facts (not stating a rule / copying a number) is still
+taken on trust — closing that would need a judge pass or far richer facts, not warranted for a
+safely-degrading last-resort answer (`docs/mvp-notes.md` #7).
