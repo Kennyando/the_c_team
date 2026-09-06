@@ -3,6 +3,7 @@ import { tileName } from '../game/tiles.js';
 import { seatWindOf } from '../game/scoring.js';
 
 const WIND_LABEL = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
+const WIND_POSITION = { we: 1, ws: 2, ww: 3, wn: 4 };
 
 /**
  * An opponent at their side of the table: a standing rack of face-down tiles, with their exposed
@@ -13,8 +14,8 @@ const WIND_LABEL = { we: 'East', ws: 'South', ww: 'West', wn: 'North' };
  * skewed text this app exists to avoid.
  */
 export default function Seat({ player, dealer, active, className }) {
-  const wind = WIND_LABEL[seatWindOf(player.seat, dealer)];
-
+  const windId = seatWindOf(player.seat, dealer);
+  const wind = WIND_LABEL[windId];
   return (
     <section className={`seat ${className} ${active ? 'active' : ''}`} aria-label={`${player.name}, ${wind} seat`}>
       <div className="seat-plate">
@@ -23,15 +24,13 @@ export default function Seat({ player, dealer, active, className }) {
           {active && <span className="seat-turn" aria-label="playing now"> ●</span>}
         </span>
         <span className="seat-meta">
-          {wind} · {player.points >= 0 ? '+' : ''}{player.points}
+          {wind} ({WIND_POSITION[windId]}) · {player.points >= 0 ? '+' : ''}{player.points}
         </span>
       </div>
-
       {/* The concealed hand, standing with its backs to you. */}
       <div className="rack" aria-label={`${player.name} holds ${player.hand.length} tiles`}>
         {player.hand.map((_, i) => <TileBack key={i} />)}
       </div>
-
       {(player.melds.length > 0 || player.bonus.length > 0) && (
         <div className="seat-open">
           {player.melds.map((meld, m) => (
