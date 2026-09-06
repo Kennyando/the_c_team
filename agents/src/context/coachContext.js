@@ -1,9 +1,11 @@
-// The facts the coach agent answers from: the live position restated as plain-English lines.
+// The facts the coach agent answers from: the live position restated as plain-English lines,
+// each with a stable id (`f0`, `f1`, …).
 //
 // Like decisionContext.js, this makes no judgement of its own — it runs the same `advisor.js`
 // primitives the frontend's local coach already uses (tile efficiency, hand distance, hand
 // value, claim advice), all of which grade against this table's own house rules. The model that
-// consumes these lines only phrases an answer; it is told not to compute or invent anything.
+// consumes these lines phrases an answer and must cite, per line, the fact ids it rests on;
+// `runCoachAnswer()` drops any answer whose citations don't resolve to a fact built here.
 //
 // Input is untrusted — it arrives over HTTP as a `position` subset the browser serialized — so
 // `rebuildState()` guards every field and hands `advisor.js` a well-formed `state`-shaped object
@@ -66,49 +68,54 @@ function rebuildState(position) {
 
 /**
  * @param {Object} position  the browser's serialized `state` subset (see frontend serializePosition)
- * @returns {{ facts: string[], phase: string, yourTurn: boolean, wallCount: number }}
+ * @returns {{ facts: {id:string,text:string}[], phase: string, yourTurn: boolean, wallCount: number }}
  */
 export function coachContext(position) {
   const state = rebuildState(position);
   const you = state.players[0];
-  const facts = [];
 
-  facts.push(rulesContext(state.rules).line);
+  const facts = [];
+  const fact = (text) => facts.push({ id: `f${facts.length}`, text });
+
+  fact(rulesContext(state.rules).line);
 
   const seatWind = seatWindOf(0, state.dealer);
-  facts.push(
+  fact(
     `You sit ${WIND_NAMES[seatWind] || seatWind}${state.dealer === 0 ? ' and you are the dealer' : ''}. ` +
       `The prevailing wind is ${WIND_NAMES[state.prevailingWind] || state.prevailingWind}.`,
   );
-  facts.push(`${state.wall.length} tiles are left in the wall.`);
+  fact(`${state.wall.length} tiles are left in the wall.`);
 
   const yourTurn = state.phase === 'act' && state.turn === 0;
   const inClaim = state.phase === 'claim' && state.claimOptions.length > 0 && !!state.pending;
 
   if (you.hand.length) {
-    facts.push(`Your hand is ${describeDistance(shanten(you.hand, you.melds))}.`);
+    fact(`Your hand is ${describeDistance(shanten(you.hand, you.melds))}.`);
     const ready = waits(you);
-    if (ready.length) facts.push(`You are waiting on ${ready.map(tileName).join(' or ')}.`);
+    if (ready.length) fact(`You are waiting on ${ready.map(tileName).join(' or ')}.`);
   }
 
   if (yourTurn && you.hand.length) {
     const advice = bestDiscard(you, contextFor(state, you));
     const why = advice.reasons[0] ? ` ${advice.reasons[0]}` : '';
-    facts.push(
+    fact(
       `The coach would discard ${tileName(advice.tile)} — it leaves you ` +
         `${describeDistance(advice.shantenAfter)}.${why}`,
     );
     if (advice.alternatives.length) {
-      facts.push(`${advice.alternatives.map(tileName).join(' and ')} would be just as good.`);
+      fact(`${advice.alternatives.map(tileName).join(' and ')} would be just as good.`);
     }
   }
 
   if (inClaim) {
-    const claim = state.claimOptions[0];
-    const advice = claimAdvice(you, claim, state.pending.tile);
-    facts.push(
-      `A ${claim.type} on ${tileName(state.pending.tile)} is on offer. The coach says: ${advice.lines[0]}`,
-    );
+    // Every legal claim, not just the first — one discard can offer several (e.g. two or three
+    // chow shapes) and they get different advice. "Which chow should I take?" needs them all.
+    const tile = tileName(state.pending.tile);
+    for (const claim of state.claimOptions) {
+      const advice = claimAdvice(you, claim, state.pending.tile);
+      const shape = claim.tiles && claim.tiles.length ? ` (${claim.tiles.map(tileName).join('-')})` : '';
+      fact(`A ${claim.type} on ${tile}${shape} is on offer. The coach says: ${advice.lines[0]}`);
+    }
   }
 
   const summary = handSummary(you, state);
@@ -116,7 +123,7 @@ export function coachContext(position) {
     const from = summary.best.score.items?.[0]
       ? ` from ${summary.best.score.items[0].name.toLowerCase()}`
       : '';
-    facts.push(
+    fact(
       `If you win on ${tileName(summary.best.tile)} it scores ${summary.best.score.tai} tai ` +
         `(pays ${summary.best.score.points})${from}.`,
     );

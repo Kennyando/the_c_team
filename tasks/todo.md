@@ -2405,5 +2405,28 @@ with a well-formed answer"); the agent's model path is tested in `agents/test/co
 because `@kaki/agents` resolves its own AWS SDK copy and can't be mocked from the backend package
 — the same reason `reviewHand.ts` has no backend unit test.
 
-Not done (documented follow-up): reject a coach answer that names a scoring pattern the active
-house rules don't include. Deploy + `VITE_COACH_ANSWER_URL` needed to make it live.
+Deploy + `VITE_COACH_ANSWER_URL` needed to make it live.
+
+### PR #26 review — grounding + all claim options (comments 1 & 2)
+
+- [x] `coachContext()` — facts are now `{ id, text }[]` (`f0`, `f1`, …). Emits one fact per
+      entry in `state.claimOptions`, not just `[0]` — one discard can offer several chow shapes
+      with different advice (`melds.js` `getClaimsFor`), so "which chow?" needs them all.
+- [x] Model contract → `{ answer: [{ refs: string[], text: string }] }`. `isCoachAnswerShape`
+      requires each line carry ≥1 non-empty ref string. `normalizeCoachAnswer` drops refs → `lines`.
+- [x] `runCoachAnswer()` — after the shape check, every cited ref must resolve to a real
+      `coachContext()` fact id, or the whole reply → deterministic. This is the boundary shape
+      validation can't give (a `{answer: string[]}`-valid reply could invent a rule).
+- [x] `prompt.js` — FACTS rendered as `f<n>: <text>`; system prompt requires per-line citations,
+      no invented ids.
+- [x] `agents/types/index.d.ts` (`CoachFact`), `agents/test/coachAnswer.test.js` (+3: unknown
+      ref → drop, partial grounding → drop, one-fact-per-claim-option), docs.
+- [x] frontend/backend untouched — `normalizeCoachAnswer` still returns `{title, lines,
+      modelAssisted}`, so `answerFromModel`'s check and the handler contract are unchanged.
+- [x] agents 39/39, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean.
+
+**Comment 3 → separate PR.** Make `coachContext()` emit structured typed facts
+(`{ id, type, ...data }[]`) rather than English strings as the canonical evidence, so citations
+can be validated against typed data, facts filtered by question, and the same evidence back a
+future LangGraph tool — English becomes a prompt-time rendering only. Noted in `docs/mvp-notes.md`
+#7 and `agents/README.md`.

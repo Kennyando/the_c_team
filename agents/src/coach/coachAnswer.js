@@ -1,14 +1,15 @@
 // The help-coach agent — the framework's second agent.
 //
-//   position ──► coachContext ──► buildUserPrompt ──► callModel ──► parse + shape check ──► CoachAnswerResult
-//                                                                          │
-//                                                     deterministicCoachAnswer ◄──┘  (on ANY failure)
+//   position ─► coachContext ─► buildUserPrompt ─► callModel ─► parse ─► shape + grounding ─► CoachAnswerResult
+//                                                                              │
+//                                                         deterministicCoachAnswer ◄──┘  (on ANY failure)
 //
 // The model reads facts our own advisor.js already computed against this table's house rules and
-// answers the player's question in words. If there is no model, or it errors, or its reply is
-// not `{ "answer": string[] }`, a fixed deterministic answer is returned instead — and, because
-// the frontend's local coach is the real offline floor, the player still always gets a useful
-// reply.
+// answers the player's question in words, citing per line the fact ids it rests on. If there is
+// no model, or it errors, or its reply is not `{ "answer": [{ refs, text }] }`, or a line cites
+// a fact id that coachContext() did not produce, a fixed deterministic answer is returned instead
+// — and, because the frontend's local coach is the real offline floor, the player still always
+// gets a useful reply.
 
 import { coachContext } from '../context/coachContext.js';
 import { callModel, parseJsonObject } from '../model.js';
@@ -37,6 +38,12 @@ export async function runCoachAnswer({ position, question, useModel = true } = {
     });
     const parsed = parseJsonObject(raw);
     if (!isCoachAnswerShape(parsed)) return deterministicCoachAnswer();
+
+    // Grounding — the boundary shape validation can't give: every id a line cites must be a real
+    // fact from coachContext(). A line that cites nothing real is invention; drop the whole reply.
+    const factIds = new Set(ctx.facts.map((f) => f.id));
+    const grounded = parsed.answer.every((line) => line.refs.every((ref) => factIds.has(ref)));
+    if (!grounded) return deterministicCoachAnswer();
 
     return normalizeCoachAnswer(parsed);
   } catch {

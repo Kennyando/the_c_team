@@ -46,8 +46,13 @@ export interface RunCoachAnswerInput {
 
 export function runCoachAnswer(input?: RunCoachAnswerInput): Promise<CoachAnswerResult>;
 
+export interface CoachFact {
+  /** Stable id (`f<index>`) a model answer cites to show which fact a line rests on. */
+  id: string;
+  text: string;
+}
 export interface CoachContext {
-  facts: string[];
+  facts: CoachFact[];
   phase: string;
   yourTurn: boolean;
   wallCount: number;
