@@ -203,12 +203,35 @@ export class KakiMahjongStack extends cdk.Stack {
     // Gateway throttle below caps the request rate before it even reaches
     // Lambda. Neither is a ceiling on total spend — a caller sitting at the
     // limit continuously, forever, still accumulates unbounded cost over
-    // time, just slowly. The AWS Budget below is the actual dollar-amount
-    // guardrail. Both throttle numbers are intentionally conservative
-    // defaults for a hackathon demo — override with `-c coachApiConcurrency=`,
+    // time, just slowly. The AWS Budget below is the closest thing to a
+    // dollar-amount guardrail, but it only *alerts* — it does not stop
+    // spend. Both throttle numbers are intentionally conservative defaults
+    // for a hackathon demo — override with `-c coachApiConcurrency=`,
     // `-c coachApiRateLimit=`, `-c coachApiBurstLimit=` if real usage needs
     // more headroom.
-    const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
+    //
+    // `-c coachApiConcurrency=0` omits the reserved-concurrency cap entirely.
+    // This is a *deployment* escape hatch, not a cost-neutral one: it trades
+    // away the only hard per-function ceiling on simultaneous invocations
+    // (and the isolation that keeps one route from consuming the whole
+    // account's Lambda concurrency). Use it only where reserving any is
+    // impossible — a restricted account (e.g. a workshop sandbox) can have a
+    // Lambda concurrency limit low enough that reserving *any* leaves fewer
+    // than the 10 unreserved executions AWS requires account-wide, failing
+    // the deploy. With `0`, the request-rate throttle and the alerting-only
+    // Budget are all that remain — not an equivalent ceiling.
+    // Validate rather than coerce: without this check any non-positive OR non-numeric value
+    // (`-1`, `abc` -> NaN, `1.5`) would fall through to "omit the cap", so a typo silently
+    // disables the concurrency guard. Now `0` is the *only* value that omits it, deliberately.
+    const coachApiConcurrencyRaw = this.node.tryGetContext("coachApiConcurrency") ?? 2;
+    const coachApiConcurrency = Number(coachApiConcurrencyRaw);
+    if (!Number.isInteger(coachApiConcurrency) || coachApiConcurrency < 0) {
+      throw new Error(
+        `coachApiConcurrency must be a non-negative integer, got "${coachApiConcurrencyRaw}". ` +
+          `Pass 0 to intentionally omit the reserved-concurrency cap; omit the flag for the default of 2.`,
+      );
+    }
+    const reservedConcurrentExecutions = coachApiConcurrency > 0 ? coachApiConcurrency : undefined;
 
     const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -218,7 +241,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "classifyIntent.ts"),
       environment: { BEDROCK_MODEL_ID: bedrockModelId },
-      reservedConcurrentExecutions: coachApiConcurrency,
+      reservedConcurrentExecutions,
     });
 
     classifyIntentFn.addToRolePolicy(
@@ -231,10 +254,14 @@ export class KakiMahjongStack extends cdk.Stack {
     // The post-hand review agent (@kaki/agents, bundled from ../../agents). Same posture as
     // classify-intent: stateless HTTP, one Bedrock call whose output is strictly validated, any
     // failure degrading to a deterministic model-free review. Shares this route's rate caps and
-    // the Budget below. `agentModelId` defaults to the same model as classify-intent; override
-    // with `-c agentModelId=us.amazon.nova-lite-v1:0` (or a Claude Haiku id) if review prose
-    // needs to be richer once it's been tested — match the deploy region's profile prefix.
-    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || bedrockModelId;
+    // the Budget below.
+    //
+    // Defaults to Nova *Lite*, not Micro: a model-comparison run (Micro / Lite / Llama 3.1 8B)
+    // found Micro contradicts itself and Llama 8B inverts the graded facts, while Lite stays
+    // coherent. Lite is still cents-per-thousand-reviews. Classify-intent stays on Micro
+    // (`bedrockModelId`) — a one-token classification doesn't need the extra capability. Override
+    // with `-c agentModelId=...`, matching the deploy region's profile prefix (`us.`/`eu.`/`apac.`).
+    const agentModelId = (this.node.tryGetContext("agentModelId") as string) || "us.amazon.nova-lite-v1:0";
     if (!cdk.Token.isUnresolved(region)) {
       assertModelRegionMatch(region, agentModelId, "agentModelId");
     }
@@ -247,7 +274,7 @@ export class KakiMahjongStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true },
       entry: path.join(__dirname, "..", "lambda", "reviewHand.ts"),
       environment: { AGENT_MODEL_ID: agentModelId },
-      reservedConcurrentExecutions: coachApiConcurrency,
+      reservedConcurrentExecutions,
     });
 
     reviewHandFn.addToRolePolicy(

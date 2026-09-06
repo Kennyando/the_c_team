@@ -2096,3 +2096,70 @@ Next: `cdk bootstrap` + `cdk deploy` in the sandbox, set `VITE_REVIEW_URL`, play
      `test:integration` is for).
 
 backend 25/25 (17 + 8 new), agents 17/17, frontend 102/102. `cdk synth` clean.
+
+## Deploy fix: optional reserved concurrency
+
+First `cdk deploy` into the workshop sandbox failed:
+`Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution
+below its minimum value of [10]`. The sandbox account's Lambda concurrency limit is low enough
+that reserving 2 on each Coach Lambda leaves < 10 unreserved account-wide, which AWS rejects.
+
+- [x] `kaki-mahjong-stack.ts` — `coachApiConcurrency = 0` now omits `reservedConcurrentExecutions`
+     entirely (via a `> 0 ? n : undefined` var) instead of setting it to 0 (which would throttle
+     the function to nothing). Default stays 2 for a normal account.
+- [x] `backend/README.md` — document `-c coachApiConcurrency=0` and the exact error it fixes.
+- [x] `cdk synth` verified: default emits `ReservedConcurrentExecutions: 2` on both Coach
+     Lambdas; `-c coachApiConcurrency=0` emits neither.
+
+Redeploy: `npx cdk deploy -c coachBudgetAlertEmail=… -c coachApiConcurrency=0` (after the failed
+stack's rollback finishes).
+
+---
+
+# Default the review agent to Nova Lite
+
+After deploying and comparing three Bedrock models on real hands:
+
+| Model | Result |
+|---|---|
+| `us.amazon.nova-micro-v1:0` | Grounded but contradicts itself (praised discarding a tile, then said keep it); choppy tone. |
+| `us.amazon.nova-lite-v1:0` | Coherent, no contradictions; pads slightly with generic advice. **Best.** |
+| `us.meta.llama3-1-8b-instruct-v1:0` | Inverts the graded facts into wrong advice ("discard stronger tiles"). Unusable. |
+
+## Todo
+
+- [x] `backend/lib/kaki-mahjong-stack.ts` — `agentModelId` defaults to `us.amazon.nova-lite-v1:0`
+     instead of falling through to `bedrockModelId`. Classify-intent stays on Nova Micro
+     (`bedrockModelId`) — a one-token classification doesn't need the extra capability.
+- [x] `agents/src/model.js` — local-run fallback `us.amazon.nova-micro-v1:0` → `us.amazon.nova-lite-v1:0`
+     (dropped the `BEDROCK_MODEL_ID` middle rung — agent and classifier now pick models separately).
+- [x] `backend/README.md`, `agents/README.md` — document the split and the rationale.
+- [x] Also folded in two commits stranded on the merged `feature/bedrock-us-east-1` branch:
+     `-c coachApiConcurrency=0` support (5fea7e3) and gitignoring `.env.local` (0a54b1e).
+
+`cdk synth`: `AGENT_MODEL_ID = us.amazon.nova-lite-v1:0`, `BEDROCK_MODEL_ID = us.amazon.nova-micro-v1:0`.
+backend 25/25, agents 17/17, frontend 102/102.
+
+Still open: per-item grounding (each review bullet must cite a specific logged decision; the
+validator rejects a reply whose bullet references no real decision, or references one whose grade
+doesn't support the good/improve bucket). That's the fix for Lite's generic padding.
+
+## PR #15 review — changes made
+
+- [x] **Concurrency=0 docs (operational suggestion).** Reworded the stack comment and
+     `backend/README.md` so `-c coachApiConcurrency=0` reads as a *deployment* escape hatch that
+     trades away the only hard per-function concurrency ceiling (and the isolation from one route
+     eating the account's Lambda concurrency) — not implying the API Gateway throttle (a
+     request-*rate* cap) and the Budget (alerting only, no enforced ceiling) provide an equivalent
+     cost bound. Also softened "the Budget is the actual dollar-amount guardrail" → "closest thing,
+     but it only alerts; there is no hard spending ceiling anywhere in this stack".
+- [ ] **Per-item grounding (architecture follow-up).** Reviewer reinforced this as the durable
+     correctness boundary (Lite is a quality improvement, not the mechanism). Already tracked as a
+     follow-up; will land as its own PR:
+     `review item → decisionId → verify decision exists → verify its grade supports the item's bucket`.
+
+- [x] **Validate coachApiConcurrency (follow-up comment).** Was `Number(ctx ?? 2)` then
+     `> 0 ? n : undefined`, so `-1`, `abc` (NaN), and `1.5` all silently fell through to "omit the
+     cap". Now throws at synth unless the value is a non-negative integer — `0` is the only value
+     that omits the cap, deliberately. Verified all six cases: omitted→2, `=5`→5, `=0`→omitted,
+     `-1`/`abc`/`1.5`→synth fails with a clear message.
