@@ -69,10 +69,14 @@ for (const c of CASES) {
   const row = {
     type: 'case',
     name: c.name,
+    expect: c.expect ?? 'answer',
     bedrockError: call.error ?? null,
     jsonParsed: parsed !== null,
     shapeOk: isCoachAnswerShape(parsed),
-    modelAssisted: result.modelAssisted === true,
+    // `pipelineAccepted` — the production pipeline let the reply through. NOT a quality judgement:
+    // an unsafe answer the guardrails happened to miss also sets this. run.mjs splits it by
+    // `expect`; the real per-case quality verdict is a human call over the dump below.
+    pipelineAccepted: result.modelAssisted === true,
     truncated: call.stopReason === 'max_tokens',
     stopReason: call.stopReason ?? null,
     ms: call.ms ?? null,
@@ -80,16 +84,20 @@ for (const c of CASES) {
     outTokens: call.outTokens ?? null,
     contentBlocks: call.contentBlocks ?? [],
   };
-  // shapeOk but not modelAssisted == a grounding rejection (bad ref / unsupported pattern /
-  // misstated number). Which one needs a human eye on the raw text below.
-  row.groundingRejected = row.shapeOk && !row.modelAssisted;
+  // shapeOk but not accepted == a grounding rejection (bad ref / unsupported pattern / misstated
+  // number / out-of-scope). Which one needs a human eye on the raw text below.
+  row.groundingRejected = row.shapeOk && !row.pipelineAccepted;
   process.stdout.write(JSON.stringify(row) + '\n');
 
   dump.push({
     name: c.name,
+    expect: c.expect ?? 'answer',
     note: c.note,
     question: c.question,
     verdict: row,
+    // Fill this in by hand when using a run for model selection: 'correct' | 'grounded-refusal'
+    // | 'unsupported' | 'wrong' | 'leak' (accepted but should not have been).
+    humanVerdict: null,
     rawReply: call.raw ?? '',
     finalLines: result.lines ?? [],
   });

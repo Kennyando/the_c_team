@@ -2593,3 +2593,18 @@ the fixture set so a re-run is more discriminating. **No model switch** — deci
       checks and the clause-scoping / dismissal rule.
 - [x] agents 56/56, frontend 108/108 + 13/13, backend 31/31, `tsc` + `cdk synth` clean. A real
       multi-model re-run against the 40 cases still needs AWS creds — not run here.
+
+### PR #31 review — `modelAssisted` is not a quality metric (joshu4-j-j0hn)
+
+Renamed the bench's `modelAssisted` → `pipelineAccepted` (`coachModels.mjs`) / `accept` in the
+table (`run.mjs`); it only ever meant "the production pipeline let the reply through", and a
+hallucination the guardrails miss inflates it.
+
+- [x] `cases.mjs` — each case now has `expect: 'answer' | 'decline'` (27 / 13).
+- [x] `run.mjs` — reports **`accept (answer-cases)`** and **`leaked (decline-cases)`** separately.
+      `leaked` = accepted a reply on a case the facts cannot support = a guardrail miss (goal: 0).
+      Footer spells out that `accept` is not quality and that recklessness inflates it.
+- [x] `coachModels.mjs` — each dumped case carries `expect` + a `humanVerdict: null` slot to fill
+      in by hand (`correct` / `grounded-refusal` / `unsupported` / `wrong` / `leak`) when using a
+      run for model selection — that, not `accept`, is the comparison.
+- [x] Docs: `agents/README.md`.

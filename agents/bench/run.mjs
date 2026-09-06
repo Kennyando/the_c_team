@@ -50,11 +50,16 @@ for (const model of MODELS) {
     .filter((o) => o.type === 'case');
 
   const n = cases.length;
+  const answerCases = cases.filter((c) => (c.expect ?? 'answer') === 'answer');
+  const declineCases = cases.filter((c) => c.expect === 'decline');
   rows.push({
     model,
     n,
     jsonValid: pct(cases.filter((c) => c.jsonParsed && c.shapeOk).length, n),
-    modelAssisted: pct(cases.filter((c) => c.modelAssisted).length, n),
+    // `accepted` = the production pipeline let the reply through. NOT a quality score — a hallucination
+    // the guardrails missed also counts. Split by intended outcome so recklessness can't inflate it:
+    acceptAnswer: pct(answerCases.filter((c) => c.pipelineAccepted).length, answerCases.length),
+    leakedDecline: `${declineCases.filter((c) => c.pipelineAccepted).length}/${declineCases.length}`,
     grounding: cases.filter((c) => c.groundingRejected).length,
     nonJson: cases.filter((c) => !c.bedrockError && !c.jsonParsed).length,
     bedrock: cases.filter((c) => c.bedrockError).length,
@@ -64,16 +69,22 @@ for (const model of MODELS) {
   });
 }
 
-const H = ['model', 'n', 'JSON-valid', 'modelAssisted', 'grounding-rej', 'non-JSON', 'bedrock-err', 'truncated', 'avg ms', 'avg out-tok'];
+const H = ['model', 'n', 'JSON-valid', 'accept (answer-cases)', 'leaked (decline-cases)', 'grounding-rej', 'non-JSON', 'bedrock-err', 'truncated', 'avg ms', 'avg out-tok'];
 const line = (cells) => `| ${cells.join(' | ')} |`;
 console.log('\n' + line(H));
 console.log(line(H.map(() => '---')));
 for (const r of rows) {
   if (r.harnessError) {
-    console.log(line([r.model, 'HARNESS ERROR — see stderr', '', '', '', '', '', '', '', '']));
+    console.log(line([r.model, 'HARNESS ERROR — see stderr', '', '', '', '', '', '', '', '', '']));
     continue;
   }
-  console.log(line([r.model, r.n, r.jsonValid, r.modelAssisted, r.grounding, r.nonJson, r.bedrock, r.truncated, r.avgMs ?? '—', r.avgOut ?? '—']));
+  console.log(line([r.model, r.n, r.jsonValid, r.acceptAnswer, r.leakedDecline, r.grounding, r.nonJson, r.bedrock, r.truncated, r.avgMs ?? '—', r.avgOut ?? '—']));
 }
-console.log('\nRaw replies per model: agents/bench/out/<model>.json — read the kept replies for');
-console.log('tone and the rejected ones to confirm each guardrail fired for a real reason.');
+console.log('\n`accept (answer-cases)` — pipeline let it through on a case where a grounded reply exists.');
+console.log('It is NOT a quality metric: it says nothing about whether the *right* answer was given,');
+console.log('and a model that reasons past the facts scores higher until a guardrail catches it.');
+console.log('`leaked (decline-cases)` — accepted an answer on a case the facts cannot support: a');
+console.log('guardrail miss. Lower is better; 0 is the goal.');
+console.log('\nFor model selection, score each case by hand: agents/bench/out/<model>.json has a');
+console.log('`humanVerdict: null` slot per case — fill with correct / grounded-refusal / unsupported /');
+console.log('wrong / leak while reading `rawReply` and `finalLines`, then compare those, not `accept`.');

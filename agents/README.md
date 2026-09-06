@@ -23,9 +23,15 @@ just phrase graded facts. It is still fenced:
   offline floor).
 
 Grounding is existence + rule-set + pinned-number + out-of-scope level, not full entailment — a
-line that *reasons about* the facts is taken on trust. See `docs/mvp-notes.md` #7. The
-`bench/` harness (`npm run bench:coach`, opt-in, real Bedrock) runs a fixed question set —
-weighted toward these adversarial cases — through the whole pipeline to compare candidate models.
+line that *reasons about* the facts is taken on trust. See `docs/mvp-notes.md` #7.
+
+The `bench/` harness (`npm run bench:coach`, opt-in, real Bedrock, never in `npm test`) runs a
+fixed 40-question set — weighted toward the adversarial cases — through the whole pipeline to
+compare candidate models. Each case has an `expect` (`answer` — a fact-grounded reply exists;
+`decline` — nothing can support one). The table reports **`accept (answer-cases)`** and
+**`leaked (decline-cases)`** separately, because "the pipeline accepted the reply" is *not* a
+quality signal — a model that reasons past the facts scores higher until a guardrail catches it.
+For a real comparison, fill in the per-case `humanVerdict` in `bench/out/<model>.json`.
 
 ## The shape every agent has
 
