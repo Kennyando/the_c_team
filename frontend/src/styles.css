@@ -187,11 +187,22 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 .rack-edge-far { top: 1%; left: 50%; max-width: 92%; transform: translateX(-50%); }
 .rack-edge-near { bottom: 4%; left: 50%; max-width: 92%; transform: translateX(-50%); }
-/* A fixed width with the backs centred inside it, so a row stays put on its edge as the hand
-   shrinks rather than sliding along as it gets shorter. */
-.rack-edge-left, .rack-edge-right { top: 50%; width: 360px; }
-.rack-edge-left { left: 4%; transform: translateY(-50%) rotate(90deg); }
-.rack-edge-right { right: 4%; transform: translateY(-50%) rotate(90deg); }
+/* The two side players' concealed tiles as a vertical column of side-on backs, sitting directly
+   above that seat's exposed melds (see .seat-left / .seat-right). Each back is laid landscape so
+   the column reads as a stack of tiles seen edge-on, the way the side seats look on a real table. */
+.rack-edge-left, .rack-edge-right {
+  bottom: 62%;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 1px;
+}
+.rack-edge-left { left: 19%; }
+.rack-edge-right { right: 19%; }
+.rack-edge-left .rack-tile, .rack-edge-right .rack-tile {
+  width: calc(var(--tile-w) * 0.52);
+  height: calc(var(--tile-h) * 0.09);
+}
 .rack-tile {
   width: calc(var(--tile-w) * 0.34);
   height: calc(var(--tile-h) * 0.30);
@@ -277,43 +288,39 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   position: absolute;
   display: flex;
   flex-wrap: wrap;
-  /* Generous row-gap: once each tile stands fully upright a back row hides behind the row in
-     front unless the rows are spaced apart, so the pile is legible as stacked standing tiles. */
-  gap: 12px 3px;
+  /* Row-gap enough to keep the upright tiles from hiding behind the row in front, but tight
+     enough that a whole hand's river still fits on the felt without being clipped. */
+  gap: 6px 3px;
   justify-content: center;
-  /* A bounded box, not just a bounded width: a seat with an unusually long run of discards must
-     stop growing rather than reach into another seat's or the table's other regions. */
-  max-height: calc(var(--tile-h) * 0.62 * 4 + 42px);
-  overflow: hidden;
-  /* Rows pack toward this edge, so once the pile is full it's always the oldest discards that get
-     clipped off — the newest, the one an actual decision depends on, never disappears. */
-  align-content: flex-end;
+  align-content: flex-start;
+}
+/* Discards sit a little smaller than the melds so a full river never crowds a seat or the wall. */
+.discard-tile .tile.small {
+  width: calc(var(--tile-w) * 0.4);
+  height: calc(var(--tile-h) * 0.4);
 }
 .discard-pile-far {
-  top: 42%;
+  top: 41%;
   left: 50%;
-  width: min(220px, 30%);
-  /* Sits closer to the centre than the other piles (moved off the far player's melds), so it is
-     capped shorter to keep a long run of discards from reaching the middle of the table. */
-  max-height: calc(var(--tile-h) * 0.62 * 3 + 30px);
+  width: min(210px, 28%);
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-near {
-  bottom: 18%;
+  bottom: 15%;
   left: 50%;
-  width: min(220px, 30%);
+  width: min(210px, 28%);
   transform: translateX(-50%) translateZ(12px);
 }
 .discard-pile-left {
   left: 37%;
   top: 50%;
-  width: min(140px, 16%);
+  width: min(130px, 15%);
   transform: translateY(-50%) translateZ(12px);
 }
 .discard-pile-right {
   right: 37%;
   top: 50%;
-  width: min(140px, 16%);
+  width: min(130px, 15%);
   transform: translateY(-50%) translateZ(12px);
 }
 
@@ -510,6 +517,25 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .dialog .row button { flex: 1 1 160px; }
 .confirm-tile { display: flex; justify-content: center; margin: 18px 0; }
 
+/* The full winning hand on the result sheet: concealed tiles, then exposed melds, then flowers. */
+.winning-hand {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 18px 0;
+}
+.winning-hand-tiles { display: flex; flex-wrap: wrap; gap: 3px; }
+.winning-hand .winning-tile .tile {
+  box-shadow: 0 0 0 3px var(--accent);
+  border-radius: 6px;
+}
+[data-theme='contrast'] .winning-hand .winning-tile .tile {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
 /* ---------- home, puzzle library and rules screens ---------- */
 
 /* No topbar above these three (Home is the one screen without the app chrome; Puzzle/Rules render
@@ -646,11 +672,10 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .log {
   position: absolute;
   top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 12px;
   z-index: 5;
-  max-width: min(90%, 640px);
-  padding: 10px 20px;
+  max-width: min(52%, 380px);
+  padding: 8px 8px 8px 18px;
   border-radius: 999px;
   background: var(--ink);
   color: #eef4f0;
@@ -658,11 +683,27 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   min-height: var(--tap);
   display: flex;
   align-items: center;
-  justify-content: center;
-  text-align: center;
+  gap: 8px;
+  text-align: left;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
+.log[hidden] { display: none; }
+.log-text { flex: 1; }
+.log-x {
+  flex: none;
+  width: calc(var(--tap) * 0.7);
+  height: calc(var(--tap) * 0.7);
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: inherit;
+  font-size: 1.2em;
+  line-height: 1;
+  cursor: pointer;
+}
+.log-x:hover { background: rgba(255, 255, 255, 0.3); }
 [data-theme='contrast'] .log { background: #000; color: #fff; border: 3px solid #fff; }
+[data-theme='contrast'] .log-x { background: #fff; color: #000; }
 
 .visually-hidden {
   position: absolute;

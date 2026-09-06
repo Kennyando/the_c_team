@@ -31,8 +31,8 @@ export default function Table({ state }) {
         </div>
 
         <Seat className="seat-far" player={state.players[2]} dealer={state.dealer} active={state.turn === 2} />
-        <Seat className="seat-left" player={state.players[1]} dealer={state.dealer} active={state.turn === 1} />
-        <Seat className="seat-right" player={state.players[3]} dealer={state.dealer} active={state.turn === 3} />
+        <Seat className="seat-right" player={state.players[1]} dealer={state.dealer} active={state.turn === 1} />
+        <Seat className="seat-left" player={state.players[3]} dealer={state.dealer} active={state.turn === 3} />
 
         {/* Each seat discards into its own tidy grid, just inside its own row of backs. */}
         <div className="discard-piles" aria-label="Discarded tiles">

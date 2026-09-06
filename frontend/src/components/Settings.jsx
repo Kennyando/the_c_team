@@ -28,7 +28,7 @@ export default function Settings({ display, setDisplay, rules, setRules, onClose
             max="2"
             step="0.1"
             value={display.scale}
-            onChange={(e) => setDisplay({ ...display, scale: Number(e.target.value) })}
+            onChange={(e) => setDisplay({ ...display, scale: Number(e.target.value), scaleAuto: false })}
           />
           <p className="hint">Everything on screen grows and shrinks together.</p>
         </div>

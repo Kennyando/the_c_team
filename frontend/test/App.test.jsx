@@ -39,3 +39,16 @@ test('Puzzle and Rules are both reachable from Home and return to it', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Home' }));
   expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
 });
+
+test('the narration pill can be dismissed', () => {
+  const { container } = render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+
+  const log = container.querySelector('.log');
+  expect(log).toBeTruthy();
+  expect(log.textContent).toMatch(/New hand dealt/);
+  expect(log.hidden).toBe(false);
+
+  fireEvent.click(container.querySelector('.log-x'));
+  expect(container.querySelector('.log').hidden).toBe(true);
+});

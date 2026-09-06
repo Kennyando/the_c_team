@@ -39,10 +39,10 @@ export default function Tile({ tile, onClick, small = false, justDrawn = false, 
   const name = tileName(tile);
 
   if (!onClick) {
-    return <span className={className} role="img" aria-label={name} data-name={name}>{content}</span>;
+    return <span className={className} role="img" aria-label={name} data-name={name} title={name}>{content}</span>;
   }
   return (
-    <button type="button" className={className} onClick={() => onClick(tile)} aria-label={name} data-name={name}>
+    <button type="button" className={className} onClick={() => onClick(tile)} aria-label={name} data-name={name} title={name}>
       {content}
     </button>
   );

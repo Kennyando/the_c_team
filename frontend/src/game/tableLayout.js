@@ -5,10 +5,12 @@
 
 /**
  * Which seat sits at which table edge, seen from your chair: you are always the near edge, and
- * the opponent you face is the far one. The same mapping places a seat's discards just inside
- * its own edge, so the row of backs and the pile below it belong to the same player.
+ * the opponent you face is the far one. Play runs counter-clockwise, so the seat that plays
+ * straight after you (seat 1) is on your right and the one before you (seat 3) is on your left —
+ * which is also why you may only chow from the seat on your left. The same mapping places a
+ * seat's discards just inside its own edge, so the row of backs and the pile below it match.
  */
-export const EDGE_SEATS = { far: 2, right: 3, near: 0, left: 1 };
+export const EDGE_SEATS = { far: 2, right: 1, near: 0, left: 3 };
 
 /**
  * The face-down tiles laid along each table edge: one back per tile that seat is still holding,

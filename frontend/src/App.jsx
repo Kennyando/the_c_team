@@ -26,6 +26,20 @@ import useNarration from './hooks/useNarration.js';
 // this is only how long the bots take so their moves can be followed.
 const PACE = 950;
 
+/**
+ * The starting tile size, picked so the whole table fits the window without scrolling. The layout
+ * is comfortable at scale 1.2 around 1180x760, so scale off whichever of width/height is tighter
+ * and clamp into the size slider's own range. Once the player moves the slider this is not used
+ * again (see `scaleAuto`).
+ */
+function fitScale() {
+  if (typeof window === 'undefined') return 1.2;
+  const byWidth = window.innerWidth / 1180;
+  const byHeight = window.innerHeight / 760;
+  const fit = Math.min(byWidth, byHeight) * 1.2;
+  return Math.round(Math.max(0.8, Math.min(fit, 1.2)) * 20) / 20;
+}
+
 /** Apply an engine function to a fresh copy of the state. */
 const advance = (state, fn) => fn(structuredClone(state));
 
@@ -58,14 +72,18 @@ export default function App() {
   const [screen, setScreen] = useState('home');
 
   const [rules, setRules] = useState(DEFAULT_RULES);
-  const [display, setDisplay] = useState({
-    scale: 1.2, contrast: false, voice: false, tileStyle: 'traditional', coachHints: false,
-    tableView: 'seated',
-  });
+  const [display, setDisplay] = useState(() => ({
+    scale: fitScale(), scaleAuto: true, contrast: false, voice: false,
+    tileStyle: 'traditional', coachHints: false, tableView: 'seated',
+  }));
   const [state, setState] = useState(() => newGame(DEFAULT_RULES, 0));
   const [confirm, setConfirm] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  // The narration pill can be dismissed; it comes back on the next new line.
+  const [logShown, setLogShown] = useState(true);
+  const lastLog = state.log.at(-1);
+  useEffect(() => { setLogShown(true); }, [lastLog]);
 
   const you = state.players[0];
   const isYourTurn = state.turn === 0;
@@ -81,6 +99,16 @@ export default function App() {
     document.documentElement.style.setProperty('--tile-scale', display.scale);
     document.documentElement.dataset.theme = display.contrast ? 'contrast' : 'light';
   }, [display]);
+
+  // Until the player touches the size slider, keep the default tuned to the window so the whole
+  // table fits without scrolling. Once they set a size of their own, `scaleAuto` is off and we
+  // leave it alone.
+  useEffect(() => {
+    if (!display.scaleAuto) return;
+    const refit = () => setDisplay((d) => (d.scaleAuto ? { ...d, scale: fitScale() } : d));
+    window.addEventListener('resize', refit);
+    return () => window.removeEventListener('resize', refit);
+  }, [display.scaleAuto]);
 
   useNarration(state.log, display.voice);
 
@@ -180,7 +208,17 @@ export default function App() {
       {screen === 'play' && !showReview && (
         <>
           <main className={`table view-${display.tableView}`}>
-            <div className="log" aria-live="polite">{state.log.at(-1)}</div>
+            <div className="log" aria-live="polite" hidden={!logShown || !lastLog}>
+              <span className="log-text">{lastLog}</span>
+              <button
+                type="button"
+                className="log-x"
+                aria-label="Dismiss message"
+                onClick={() => setLogShown(false)}
+              >
+                ×
+              </button>
+            </div>
 
             <Table state={state} />
 

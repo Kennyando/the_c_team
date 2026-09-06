@@ -13,7 +13,8 @@ test('all four edges are drawn, each mapped to the seat that sits there', () => 
   const rows = handRows(seatedAs([14, 13, 13, 13]));
 
   assert.deepEqual(rows.map((r) => r.edge), ['far', 'right', 'near', 'left']);
-  assert.deepEqual(rows.map((r) => r.seat), [2, 3, 0, 1]);
+  // Play runs counter-clockwise: seat 1 plays after you (right), seat 3 before you (left).
+  assert.deepEqual(rows.map((r) => r.seat), [2, 1, 0, 3]);
   // You are always nearest yourself, and the opponent you face is across the table.
   assert.equal(EDGE_SEATS.near, 0);
   assert.equal(EDGE_SEATS.far, 2);
