@@ -86,53 +86,21 @@ function CornerIndex({ text }) {
 
 function Motif({ motif }) {
   switch (motif) {
-    case 'blossom': // plum — five round petals
-      return (
-        <g>
-          {[0, 72, 144, 216, 288].map((a) => (
-            <circle key={a} r="15"
-              cx={50 + 19 * Math.sin((a * Math.PI) / 180)}
-              cy={72 - 19 * Math.cos((a * Math.PI) / 180)}
-              fill={RED} opacity="0.85" />
-          ))}
-          <circle cx="50" cy="72" r="7" fill="var(--tile-face)" />
-        </g>
-      );
-    case 'orchid': // long arching grass-like leaves with a small bloom
-      return (
-        <g>
-          <g fill="none" stroke={GREEN} strokeWidth="5" strokeLinecap="round">
-            <path d="M50 124 Q18 96 16 38" />
-            <path d="M50 124 Q82 98 86 46" />
-            <path d="M50 124 Q42 86 30 60" />
-            <path d="M50 124 Q60 88 72 66" />
-          </g>
-          <g fill={RED}>
-            <ellipse cx="50" cy="36" rx="7" ry="12" />
-            <ellipse cx="40" cy="44" rx="9" ry="5" transform="rotate(-30 40 44)" />
-            <ellipse cx="60" cy="44" rx="9" ry="5" transform="rotate(30 60 44)" />
-          </g>
-        </g>
-      );
-    case 'chrys': // many narrow petals radiating from a centre
-      return (
-        <g>
-          {Array.from({ length: 12 }, (_, i) => i * 30).map((a) => (
-            <ellipse key={a} cx="50" cy="72" rx="6" ry="26" fill={RED} opacity="0.8"
-              transform={`rotate(${a} 50 72)`} />
-          ))}
-          <circle cx="50" cy="72" r="9" fill={GREEN} />
-        </g>
-      );
-    case 'bamboo': // a cane with leaves sprouting from the top
-      return (
-        <g>
-          <Stick x={50} y={92} h={58} w={16} />
-          <path d="M46 58 Q22 46 12 54 Q28 68 46 64 Z" fill={GREEN} />
-          <path d="M54 58 Q78 46 88 54 Q72 68 54 64 Z" fill={GREEN} />
-          <path d="M50 48 Q42 28 50 14 Q60 28 52 48 Z" fill={GREEN} />
-        </g>
-      );
+    case 'flower': // one uniform flower for all four Flower tiles, per the reference set
+  return (
+    <g>
+      {[0, 72, 144, 216, 288].map((a) => (
+        <circle key={a} r="16"
+          cx={50 + 19 * Math.sin((a * Math.PI) / 180)}
+          cy={66 - 19 * Math.cos((a * Math.PI) / 180)}
+          fill={RED} opacity="0.9" />
+      ))}
+      <circle cx="50" cy="66" r="7.5" fill="var(--tile-face)" />
+      <path d="M50 86 L50 112" stroke={GREEN} strokeWidth="5" strokeLinecap="round" fill="none" />
+      <path d="M50 100 Q34 96 30 84 Q46 86 50 98 Z" fill={GREEN} />
+      <path d="M50 100 Q66 96 70 84 Q54 86 50 98 Z" fill={GREEN} />
+    </g>
+  );
     case 'sprout': // spring
       return (
         <g>
