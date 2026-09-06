@@ -728,7 +728,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 }
 .coach-head h2 { margin: 0; flex: 1; font-size: max(19px, calc(20px * var(--tile-scale))); }
 
-.coach-answers { flex: 1; min-height: 30vh; overflow-y: auto; padding: 14px 16px; }
+.coach-answers { flex: 1 1 auto; min-height: 4.5em; overflow-y: auto; padding: 14px 16px; }
 .coach-intro { margin: 0; color: var(--muted); }
 .coach-q {
   margin: 14px 0 6px;
@@ -766,13 +766,30 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .coach-a p:last-child { margin-bottom: 0; }
 
 .coach-quick {
+  padding: 8px 16px 12px;
+  border-top: 3px solid var(--panel-edge);
+}
+/* A slim disclosure header, not a full tap-target button — it folds the list away. */
+.coach-quick-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-weight: 800;
+  font-size: max(13px, calc(14px * var(--tile-scale)));
+}
+.coach-quick-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 16px;
-  border-top: 3px solid var(--panel-edge);
+  margin-top: 8px;
 }
-.coach-quick button {
+.coach-quick-list button {
   flex: 1 1 auto;
   font-size: max(14px, calc(15px * var(--tile-scale)));
   font-weight: 600;
