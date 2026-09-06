@@ -1,8 +1,7 @@
 // Where things sit on the table.
 //
-// Keep this module limited to layout logic that is consumed by the current UI.
-// Add seat/river/hand geometry here only when the corresponding component is
-// wired up in the same change and covered by tests.
+// Pure functions, no React — the same convention as the rest of src/game/, and it means the
+// edge/seat mapping can be checked in tests rather than eyeballed in a browser.
 
 /**
  * Which seat sits at which table edge, seen from your chair: you are always the near edge, and
@@ -12,38 +11,16 @@
 export const EDGE_SEATS = { far: 2, right: 3, near: 0, left: 1 };
 
 /**
- * Split the remaining wall into two-tile-high stacks across the four edges.
+ * The face-down tiles laid along each table edge: one back per tile that seat is still holding,
+ * so the length of a row is that player's hand size — 13 normally, 14 for whoever is mid-turn,
+ * and fewer once they have exposed melds.
  *
- * A visual stack represents up to two wall tiles, so the number of stacks is
- * ceil(remaining / 2). Stacks are distributed evenly around the table. Any
- * remainder is assigned in EDGES order (far, right, near, left), preserving
- * the existing behaviour and keeping the ring balanced.
- *
- * Invalid, negative, and non-finite values are treated as an empty wall. This
- * keeps the render path defensive rather than throwing during state changes.
- *
- * @param {number} remaining number of tiles remaining in the wall
- * @returns {{ edge: string, stacks: number }[]}
+ * Returns one entry per edge: `{ edge, seat, tiles }`.
  */
-export function wallStacks(remaining) {
-  const safeRemaining = Number.isFinite(remaining)
-    ? Math.max(0, Math.floor(remaining))
-    : 0;
-
-  const totalStacks = Math.ceil(safeRemaining / 2);
-  const stacksPerEdge = Math.floor(totalStacks / EDGES.length);
-  let remainder = totalStacks % EDGES.length;
-
-  return EDGES.map((edge) => {
-    const extraStack = remainder > 0 ? 1 : 0;
-
-    if (remainder > 0) {
-      remainder -= 1;
-    }
-
-    return {
-      edge,
-      stacks: stacksPerEdge + extraStack,
-    };
-  });
+export function handRows(players) {
+  return Object.entries(EDGE_SEATS).map(([edge, seat]) => ({
+    edge,
+    seat,
+    tiles: players[seat].hand.length,
+  }));
 }
