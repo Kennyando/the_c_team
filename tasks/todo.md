@@ -2157,3 +2157,9 @@ doesn't support the good/improve bucket). That's the fix for Lite's generic padd
      correctness boundary (Lite is a quality improvement, not the mechanism). Already tracked as a
      follow-up; will land as its own PR:
      `review item → decisionId → verify decision exists → verify its grade supports the item's bucket`.
+
+- [x] **Validate coachApiConcurrency (follow-up comment).** Was `Number(ctx ?? 2)` then
+     `> 0 ? n : undefined`, so `-1`, `abc` (NaN), and `1.5` all silently fell through to "omit the
+     cap". Now throws at synth unless the value is a non-negative integer — `0` is the only value
+     that omits the cap, deliberately. Verified all six cases: omitted→2, `=5`→5, `=0`→omitted,
+     `-1`/`abc`/`1.5`→synth fails with a clear message.

@@ -220,7 +220,17 @@ export class KakiMahjongStack extends cdk.Stack {
     // than the 10 unreserved executions AWS requires account-wide, failing
     // the deploy. With `0`, the request-rate throttle and the alerting-only
     // Budget are all that remain — not an equivalent ceiling.
-    const coachApiConcurrency = Number(this.node.tryGetContext("coachApiConcurrency") ?? 2);
+    // Validate rather than coerce: without this check any non-positive OR non-numeric value
+    // (`-1`, `abc` -> NaN, `1.5`) would fall through to "omit the cap", so a typo silently
+    // disables the concurrency guard. Now `0` is the *only* value that omits it, deliberately.
+    const coachApiConcurrencyRaw = this.node.tryGetContext("coachApiConcurrency") ?? 2;
+    const coachApiConcurrency = Number(coachApiConcurrencyRaw);
+    if (!Number.isInteger(coachApiConcurrency) || coachApiConcurrency < 0) {
+      throw new Error(
+        `coachApiConcurrency must be a non-negative integer, got "${coachApiConcurrencyRaw}". ` +
+          `Pass 0 to intentionally omit the reserved-concurrency cap; omit the flag for the default of 2.`,
+      );
+    }
     const reservedConcurrentExecutions = coachApiConcurrency > 0 ? coachApiConcurrency : undefined;
 
     const classifyIntentFn = new lambdaNode.NodejsFunction(this, "ClassifyIntentFn", {
