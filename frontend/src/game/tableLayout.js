@@ -36,6 +36,15 @@ export function wallStacks(remaining) {
       remainder -= 1;
     }
 
+  export function TileBack({ small = false }) {
+    return (
+      <span
+        className={`tile-back${small ? ' tile-back-small' : ''}`}
+        aria-hidden="true"
+      />
+    );
+}
+
     return {
       edge,
       stacks: stacksPerEdge + extraStack,
